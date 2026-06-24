@@ -3,7 +3,7 @@
 {% block content %}
 <div class="mb-6">
     <h1 class="text-2xl font-bold text-gray-900">Наши продажные цены</h1>
-    <p class="text-gray-500 text-sm mt-1">Три типа: под заказ · 3PL · 3PL + Emex</p>
+    <p class="text-gray-500 text-sm mt-1">Три канала: Заказ под клиента · Склад 3PL · Через EMEX</p>
 </div>
 
 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
@@ -12,7 +12,7 @@
         <h2 class="font-semibold text-gray-900 mb-3">Загрузить из Excel</h2>
         <p class="text-sm text-gray-500 mb-3">
             Формат: первая колонка — артикул, далее три колонки с ценами
-            (заказ, 3PL, 3PL+Emex). Названия колонок определяются автоматически.
+            (Заказ под клиента, Склад 3PL, Через EMEX). Названия колонок определяются автоматически.
         </p>
         <input type="file" id="prices-file" accept=".xlsx,.xls,.csv" class="input-field mb-3">
         <button onclick="uploadPrices()" class="btn-primary w-full">Загрузить</button>
@@ -26,9 +26,9 @@
             <input type="text" id="man-pn" placeholder="Артикул" class="input-field">
             <input type="text" id="man-brand" placeholder="Бренд (необязательно)" class="input-field">
             <div class="grid grid-cols-3 gap-2">
-                <input type="number" id="man-p1" placeholder="Заказ ₽" class="input-field" step="0.01">
-                <input type="number" id="man-p2" placeholder="3PL ₽" class="input-field" step="0.01">
-                <input type="number" id="man-p3" placeholder="3PL+Emex ₽" class="input-field" step="0.01">
+                <input type="number" id="man-p1" placeholder="Заказ под клиента ₽" class="input-field" step="0.01">
+                <input type="number" id="man-p2" placeholder="Склад 3PL ₽" class="input-field" step="0.01">
+                <input type="number" id="man-p3" placeholder="Через EMEX ₽" class="input-field" step="0.01">
             </div>
             <button onclick="addSinglePrice()" class="btn-primary w-full">Сохранить</button>
         </div>
@@ -56,8 +56,8 @@ async function loadPrices() {
     let html = `<table class="w-full text-sm">
         <tr class="text-gray-500 text-left">
             <th class="pr-3">Артикул</th><th class="pr-3">Бренд</th>
-            <th class="pr-3 text-right">Заказ</th><th class="pr-3 text-right">3PL</th>
-            <th class="pr-3 text-right">3PL+Emex</th><th>Обновлено</th></tr>`;
+            <th class="pr-3 text-right">Заказ под клиента</th><th class="pr-3 text-right">Склад 3PL</th>
+            <th class="pr-3 text-right">Через EMEX</th><th>Обновлено</th></tr>`;
     for (const p of data) {
         html += `<tr class="hover:bg-gray-50 cursor-pointer" onclick="window.location='/search?q=${encodeURIComponent(p.part_number)}'">
             <td class="pr-3 font-mono font-medium">${p.part_number}</td>

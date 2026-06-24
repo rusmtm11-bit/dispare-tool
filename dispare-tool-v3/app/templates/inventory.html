@@ -9,17 +9,52 @@
     <div class="flex gap-2 flex-wrap">
         <button onclick="updateRates()" class="btn-secondary" title="Загрузить свежий курс ЦБ">Обновить курс</button>
         <button onclick="recalcPrices()" class="btn-secondary" title="Пересчитать все цены по текущему курсу">Пересчитать цены</button>
-        <a href="/api/inventory/export" class="btn-primary">Скачать Excel</a>
+        <a href="/api/inventory/export" class="btn-secondary" title="Внутренний файл: себестоимость, расходы, маржа">Excel (внутр.)</a>
+        <a href="/api/inventory/export-client" class="btn-primary" title="Прайс для клиента: только цены, без себестоимости">Прайс для клиента</a>
     </div>
 </div>
 
-<div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6" id="summary">
+<!-- Базовые показатели -->
+<div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4" id="summary">
     <div class="stat-card"><div class="text-2xl font-bold" id="s-sku">—</div><div class="text-sm text-gray-500">SKU</div></div>
     <div class="stat-card"><div class="text-2xl font-bold" id="s-qty">—</div><div class="text-sm text-gray-500">Штук</div></div>
     <div class="stat-card"><div class="text-2xl font-bold" id="s-usd">—</div><div class="text-sm text-gray-500">Закупка USD</div></div>
-    <div class="stat-card"><div class="text-2xl font-bold" id="s-rub">—</div><div class="text-sm text-gray-500">Закупка ₽</div></div>
-    <div class="stat-card"><div class="text-2xl font-bold" id="s-revenue">—</div><div class="text-sm text-gray-500">Выручка потенц. ₽</div></div>
+    <div class="stat-card"><div class="text-2xl font-bold" id="s-cost">—</div><div class="text-sm text-gray-500">Себестоимость ₽</div></div>
+    <div class="stat-card"><div class="text-2xl font-bold" id="s-sold">—</div><div class="text-sm text-gray-500">Продано ₽</div></div>
     <div class="stat-card"><div class="text-2xl font-bold" id="s-rate">—</div><div class="text-sm text-gray-500">USD/₽</div></div>
+</div>
+
+<!-- Потенциальная выручка и прибыль по 3 каналам -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+        <div class="text-sm text-gray-500">Заказ под клиента</div>
+        <div class="text-xl font-bold text-gray-900" id="rev-order">—</div>
+        <div class="text-xs text-green-600" id="prof-order">прибыль —</div>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+        <div class="text-sm text-gray-500">Склад 3PL</div>
+        <div class="text-xl font-bold text-gray-900" id="rev-3pl">—</div>
+        <div class="text-xs text-green-600" id="prof-3pl">прибыль —</div>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 p-4">
+        <div class="text-sm text-gray-500">Через EMEX</div>
+        <div class="text-xl font-bold text-gray-900" id="rev-emex">—</div>
+        <div class="text-xs text-green-600" id="prof-emex">прибыль —</div>
+    </div>
+</div>
+
+<!-- Валютная переоценка -->
+<div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6 text-sm">
+    <div class="font-semibold text-gray-700 mb-2">Валютная переоценка остатков</div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>Вложено в остатки: <span class="font-mono font-medium" id="fx-invested-usd">—</span><br>
+            <span class="text-gray-500">по курсу закупки = <span class="font-mono" id="fx-invested-purchase">—</span></span></div>
+        <div>Те же остатки сейчас:<br>
+            <span class="text-gray-500">по текущему курсу = <span class="font-mono" id="fx-invested-current">—</span></span></div>
+        <div>Курсовая разница:<br>
+            <span class="font-mono font-bold text-base" id="fx-diff">—</span></div>
+    </div>
+    <div class="text-gray-500 mt-2" id="fx-sold">Реализовано: —</div>
 </div>
 
 <div class="flex gap-2 mb-4 flex-wrap">
@@ -28,6 +63,7 @@
     <button onclick="switchInvTab('upload')" id="inv-tab-upload" class="tab-btn">Загрузить Excel</button>
     <button onclick="switchInvTab('sell')" id="inv-tab-sell" class="tab-btn">Продажа / Возврат</button>
     <button onclick="switchInvTab('markups')" id="inv-tab-markups" class="tab-btn">Наценки (массово)</button>
+    <button onclick="switchInvTab('expenses')" id="inv-tab-expenses" class="tab-btn">Расходы (массово)</button>
 </div>
 
 <!-- ОСТАТКИ -->
@@ -59,6 +95,18 @@
             </div>
 
             <div class="border-t pt-3">
+                <label class="text-sm font-medium text-gray-700 mb-2 block">Расходы на единицу (₽):</label>
+                <div class="grid grid-cols-5 gap-2">
+                    <div><label class="text-xs text-gray-500">Логистика</label><input type="number" id="add-logistics" value="0" class="input-field" step="0.01"></div>
+                    <div><label class="text-xs text-gray-500">Пошлина</label><input type="number" id="add-customs" value="0" class="input-field" step="0.01"></div>
+                    <div><label class="text-xs text-gray-500">НДС</label><input type="number" id="add-vat" value="0" class="input-field" step="0.01"></div>
+                    <div><label class="text-xs text-gray-500">Склад</label><input type="number" id="add-warehouse" value="0" class="input-field" step="0.01"></div>
+                    <div><label class="text-xs text-gray-500">Прочее</label><input type="number" id="add-other" value="0" class="input-field" step="0.01"></div>
+                </div>
+                <p class="text-xs text-gray-400 mt-1">Себестоимость = закупка × курс + все эти расходы. Наценка считается от полной себестоимости.</p>
+            </div>
+
+            <div class="border-t pt-3">
                 <label class="text-sm font-medium text-gray-700 mb-2 block">Режим наценки:</label>
                 <div class="flex gap-4 mb-3">
                     <label class="flex items-center gap-1 text-sm"><input type="radio" name="add-mode" value="pct" checked onchange="toggleMarkupMode()"> В процентах</label>
@@ -67,19 +115,19 @@
                 </div>
 
                 <div id="markup-pct-fields" class="grid grid-cols-3 gap-3">
-                    <div><label class="text-xs text-gray-500">Заказ %</label><input type="number" id="add-m1" value="30" class="input-field"></div>
-                    <div><label class="text-xs text-gray-500">3PL %</label><input type="number" id="add-m2" value="35" class="input-field"></div>
-                    <div><label class="text-xs text-gray-500">3PL+Emex %</label><input type="number" id="add-m3" value="40" class="input-field"></div>
+                    <div><label class="text-xs text-gray-500">Заказ под клиента %</label><input type="number" id="add-m1" value="30" class="input-field"></div>
+                    <div><label class="text-xs text-gray-500">Склад 3PL %</label><input type="number" id="add-m2" value="35" class="input-field"></div>
+                    <div><label class="text-xs text-gray-500">Через EMEX %</label><input type="number" id="add-m3" value="40" class="input-field"></div>
                 </div>
                 <div id="markup-rub-fields" class="grid grid-cols-3 gap-3 hidden">
-                    <div><label class="text-xs text-gray-500">Заказ ₽</label><input type="number" id="add-r1" value="3000" class="input-field"></div>
-                    <div><label class="text-xs text-gray-500">3PL ₽</label><input type="number" id="add-r2" value="4000" class="input-field"></div>
-                    <div><label class="text-xs text-gray-500">3PL+Emex ₽</label><input type="number" id="add-r3" value="5000" class="input-field"></div>
+                    <div><label class="text-xs text-gray-500">Заказ под клиента ₽</label><input type="number" id="add-r1" value="3000" class="input-field"></div>
+                    <div><label class="text-xs text-gray-500">Склад 3PL ₽</label><input type="number" id="add-r2" value="4000" class="input-field"></div>
+                    <div><label class="text-xs text-gray-500">Через EMEX ₽</label><input type="number" id="add-r3" value="5000" class="input-field"></div>
                 </div>
                 <div id="markup-manual-fields" class="grid grid-cols-3 gap-3 hidden">
-                    <div><label class="text-xs text-gray-500">Цена заказ ₽</label><input type="number" id="add-p1" class="input-field" step="0.01"></div>
-                    <div><label class="text-xs text-gray-500">Цена 3PL ₽</label><input type="number" id="add-p2" class="input-field" step="0.01"></div>
-                    <div><label class="text-xs text-gray-500">Цена 3PL+Emex ₽</label><input type="number" id="add-p3" class="input-field" step="0.01"></div>
+                    <div><label class="text-xs text-gray-500">Цена «Заказ под клиента» ₽</label><input type="number" id="add-p1" class="input-field" step="0.01"></div>
+                    <div><label class="text-xs text-gray-500">Цена «Склад 3PL» ₽</label><input type="number" id="add-p2" class="input-field" step="0.01"></div>
+                    <div><label class="text-xs text-gray-500">Цена «Через EMEX» ₽</label><input type="number" id="add-p3" class="input-field" step="0.01"></div>
                 </div>
             </div>
 
@@ -93,12 +141,13 @@
 <div id="inv-panel-upload" class="inv-panel hidden">
     <div class="bg-white rounded-xl border border-gray-200 p-5 max-w-lg">
         <h2 class="font-semibold text-gray-900 mb-3">Загрузить остатки из Excel</h2>
-        <p class="text-sm text-gray-500 mb-3">Формат: артикул, [бренд], [описание], количество, цена (USD).</p>
+        <p class="text-sm text-gray-500 mb-3">Базовый формат: артикул, бренд, описание, кол-во, закупка.<br>
+        Расширенный (9 колонок): артикул, бренд, описание, кол-во, закупка, логистика ₽, пошлина ₽, НДС ₽, склад ₽.</p>
         <input type="file" id="inv-file" accept=".xlsx,.xls,.csv" class="input-field mb-3">
         <div class="grid grid-cols-3 gap-3 mb-3">
-            <div><label class="text-xs text-gray-500">Наценка заказ %</label><input type="number" id="upl-m1" value="30" class="input-field"></div>
-            <div><label class="text-xs text-gray-500">Наценка 3PL %</label><input type="number" id="upl-m2" value="35" class="input-field"></div>
-            <div><label class="text-xs text-gray-500">Наценка 3PL+E %</label><input type="number" id="upl-m3" value="40" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">Наценка «Заказ» %</label><input type="number" id="upl-m1" value="30" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">Наценка «Склад 3PL» %</label><input type="number" id="upl-m2" value="35" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">Наценка «EMEX» %</label><input type="number" id="upl-m3" value="40" class="input-field"></div>
         </div>
         <button onclick="uploadInventory()" class="btn-primary w-full">Загрузить</button>
         <div id="upl-result" class="mt-3 text-sm"></div>
@@ -138,17 +187,38 @@
             </div>
         </div>
         <div id="mk-pct" class="grid grid-cols-3 gap-3 mb-3">
-            <div><label class="text-xs text-gray-500">Заказ %</label><input type="number" id="mk-m1" value="30" class="input-field"></div>
-            <div><label class="text-xs text-gray-500">3PL %</label><input type="number" id="mk-m2" value="35" class="input-field"></div>
-            <div><label class="text-xs text-gray-500">3PL+Emex %</label><input type="number" id="mk-m3" value="40" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">Заказ под клиента %</label><input type="number" id="mk-m1" value="30" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">Склад 3PL %</label><input type="number" id="mk-m2" value="35" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">Через EMEX %</label><input type="number" id="mk-m3" value="40" class="input-field"></div>
         </div>
         <div id="mk-rub" class="grid grid-cols-3 gap-3 mb-3 hidden">
-            <div><label class="text-xs text-gray-500">Заказ ₽</label><input type="number" id="mk-r1" value="3000" class="input-field"></div>
-            <div><label class="text-xs text-gray-500">3PL ₽</label><input type="number" id="mk-r2" value="4000" class="input-field"></div>
-            <div><label class="text-xs text-gray-500">3PL+Emex ₽</label><input type="number" id="mk-r3" value="5000" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">Заказ под клиента ₽</label><input type="number" id="mk-r1" value="3000" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">Склад 3PL ₽</label><input type="number" id="mk-r2" value="4000" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">Через EMEX ₽</label><input type="number" id="mk-r3" value="5000" class="input-field"></div>
         </div>
         <button onclick="updateMarkups()" class="btn-primary w-full">Применить ко всем</button>
         <div id="mk-result" class="mt-3 text-sm"></div>
+    </div>
+</div>
+
+<!-- МАССОВЫЕ РАСХОДЫ -->
+<div id="inv-panel-expenses" class="inv-panel hidden">
+    <div class="bg-white rounded-xl border border-gray-200 p-5 max-w-lg">
+        <h2 class="font-semibold text-gray-900 mb-3">Задать расходы для всех позиций</h2>
+        <p class="text-sm text-gray-500 mb-3">Например, логистика 500 ₽ на единицу для всего склада. Заполняйте только нужные поля.</p>
+        <div class="grid grid-cols-5 gap-2 mb-3">
+            <div><label class="text-xs text-gray-500">Логистика</label><input type="number" id="exp-logistics" value="0" class="input-field" step="0.01"></div>
+            <div><label class="text-xs text-gray-500">Пошлина</label><input type="number" id="exp-customs" value="0" class="input-field" step="0.01"></div>
+            <div><label class="text-xs text-gray-500">НДС</label><input type="number" id="exp-vat" value="0" class="input-field" step="0.01"></div>
+            <div><label class="text-xs text-gray-500">Склад</label><input type="number" id="exp-warehouse" value="0" class="input-field" step="0.01"></div>
+            <div><label class="text-xs text-gray-500">Прочее</label><input type="number" id="exp-other" value="0" class="input-field" step="0.01"></div>
+        </div>
+        <label class="flex items-center gap-2 text-sm mb-3">
+            <input type="checkbox" id="exp-only-empty"> Заполнять только там, где сейчас 0 (не перетирать заданные)
+        </label>
+        <p class="text-xs text-gray-400 mb-3">Применяются только поля с ненулевым значением. После применения цены пересчитаются автоматически.</p>
+        <button onclick="setExpenses()" class="btn-primary w-full">Применить ко всем</button>
+        <div id="exp-result" class="mt-3 text-sm"></div>
     </div>
 </div>
 {% endblock %}
@@ -176,12 +246,37 @@ function toggleMkMode() {
 async function loadSummary() {
     const resp = await fetch('/api/inventory/summary');
     const d = await resp.json();
+    const rub = (x) => (x || 0).toLocaleString('ru') + ' ₽';
     document.getElementById('s-sku').textContent = d.total_sku;
     document.getElementById('s-qty').textContent = d.total_quantity.toLocaleString('ru');
-    document.getElementById('s-usd').textContent = '$' + d.total_value_usd.toLocaleString('ru');
-    document.getElementById('s-rub').textContent = d.total_value_rub.toLocaleString('ru') + ' ₽';
-    document.getElementById('s-revenue').textContent = d.total_revenue_potential.toLocaleString('ru') + ' ₽';
+    document.getElementById('s-usd').textContent = '$' + (d.invested_usd || 0).toLocaleString('ru');
+    document.getElementById('s-cost').textContent = (d.cost_total_rub || 0).toLocaleString('ru');
+    document.getElementById('s-sold').textContent = (d.sold_rub || 0).toLocaleString('ru');
     document.getElementById('s-rate').textContent = d.usd_rate ? d.usd_rate.toFixed(2) : '—';
+
+    // Выручка и прибыль по каналам
+    document.getElementById('rev-order').textContent = rub(d.revenue_order);
+    document.getElementById('rev-3pl').textContent = rub(d.revenue_3pl);
+    document.getElementById('rev-emex').textContent = rub(d.revenue_emex);
+    const profTxt = (id, val) => {
+        const el = document.getElementById(id);
+        el.textContent = 'прибыль ' + rub(val);
+        el.className = 'text-xs ' + ((val || 0) >= 0 ? 'text-green-600' : 'text-red-600');
+    };
+    profTxt('prof-order', d.profit_order);
+    profTxt('prof-3pl', d.profit_3pl);
+    profTxt('prof-emex', d.profit_emex);
+
+    // Валютная переоценка
+    document.getElementById('fx-invested-usd').textContent = '$' + (d.invested_usd || 0).toLocaleString('ru');
+    document.getElementById('fx-invested-purchase').textContent = rub(d.invested_rub_purchase);
+    document.getElementById('fx-invested-current').textContent = rub(d.invested_rub_current);
+    const fx = document.getElementById('fx-diff');
+    const diff = d.fx_diff || 0;
+    fx.textContent = (diff >= 0 ? '+' : '') + diff.toLocaleString('ru') + ' ₽';
+    fx.className = 'font-mono font-bold text-base ' + (diff >= 0 ? 'text-green-600' : 'text-red-600');
+    document.getElementById('fx-sold').textContent =
+        `Реализовано: ${rub(d.sold_rub)} (≈ $${(d.sold_usd_equiv || 0).toLocaleString('ru')} по курсу продаж)`;
 }
 
 async function loadInventory() {
@@ -193,8 +288,8 @@ async function loadInventory() {
     let html = `<table class="w-full text-sm"><tr class="text-gray-500 text-left">
         <th class="pr-2">Артикул</th><th class="pr-2">Бренд</th><th class="pr-2 text-right">Кол-во</th>
         <th class="pr-2 text-right">Закупка</th><th class="pr-2 text-right">Себест. ₽</th>
-        <th class="pr-2 text-right">Заказ ₽</th><th class="pr-2 text-right">3PL ₽</th>
-        <th class="pr-2 text-right">3PL+E ₽</th><th class="pr-2 text-right">Маржа ₽</th><th></th></tr>`;
+        <th class="pr-2 text-right">Расх./ед ₽</th><th class="pr-2 text-right">Заказ ₽</th><th class="pr-2 text-right">3PL ₽</th>
+        <th class="pr-2 text-right">EMEX ₽</th><th class="pr-2 text-right">Маржа ₽</th><th></th></tr>`;
     for (const i of data) {
         const qc = i.quantity <= 0 ? 'text-red-600 font-bold' : (i.quantity <= 5 ? 'text-orange-500' : '');
         html += `<tr class="hover:bg-gray-50">
@@ -203,6 +298,7 @@ async function loadInventory() {
             <td class="pr-2 text-right ${qc}">${i.quantity}</td>
             <td class="pr-2 text-right font-mono text-gray-500">$${i.purchase_price}</td>
             <td class="pr-2 text-right font-mono text-gray-500">${i.cost_rub ? i.cost_rub.toLocaleString('ru') : '—'}</td>
+            <td class="pr-2 text-right font-mono text-gray-400">${i.extras_total ? i.extras_total.toLocaleString('ru') : '—'}</td>
             <td class="pr-2 text-right font-mono">${i.price_order ? i.price_order.toLocaleString('ru') : '0'}</td>
             <td class="pr-2 text-right font-mono">${i.price_3pl ? i.price_3pl.toLocaleString('ru') : '0'}</td>
             <td class="pr-2 text-right font-mono">${i.price_3pl_emex ? i.price_3pl_emex.toLocaleString('ru') : '0'}</td>
@@ -222,6 +318,11 @@ function editItem(item) {
     document.getElementById('add-qty').value = item.quantity;
     document.getElementById('add-price').value = item.purchase_price;
     document.getElementById('add-currency').value = item.purchase_currency;
+    document.getElementById('add-logistics').value = item.logistics_cost || 0;
+    document.getElementById('add-customs').value = item.customs_duty || 0;
+    document.getElementById('add-vat').value = item.vat_cost || 0;
+    document.getElementById('add-warehouse').value = item.warehouse_cost || 0;
+    document.getElementById('add-other').value = item.other_costs || 0;
     document.getElementById('add-m1').value = item.markup_order_pct;
     document.getElementById('add-m2').value = item.markup_3pl_pct;
     document.getElementById('add-m3').value = item.markup_3pl_emex_pct;
@@ -257,6 +358,11 @@ async function addItem() {
     form.append('quantity', document.getElementById('add-qty').value || 0);
     form.append('purchase_price', document.getElementById('add-price').value || 0);
     form.append('purchase_currency', document.getElementById('add-currency').value);
+    form.append('logistics_cost', document.getElementById('add-logistics').value || 0);
+    form.append('customs_duty', document.getElementById('add-customs').value || 0);
+    form.append('vat_cost', document.getElementById('add-vat').value || 0);
+    form.append('warehouse_cost', document.getElementById('add-warehouse').value || 0);
+    form.append('other_costs', document.getElementById('add-other').value || 0);
     form.append('markup_mode', mode);
     form.append('markup_order_pct', document.getElementById('add-m1').value);
     form.append('markup_3pl_pct', document.getElementById('add-m2').value);
@@ -327,6 +433,20 @@ async function updateMarkups() {
     const data = await resp.json();
     document.getElementById('mk-result').innerHTML = `<span class="text-green-700">Обновлено ${data.updated} позиций</span>`;
     loadInventory();
+}
+
+async function setExpenses() {
+    const form = new FormData();
+    form.append('logistics_cost', document.getElementById('exp-logistics').value || 0);
+    form.append('customs_duty', document.getElementById('exp-customs').value || 0);
+    form.append('vat_cost', document.getElementById('exp-vat').value || 0);
+    form.append('warehouse_cost', document.getElementById('exp-warehouse').value || 0);
+    form.append('other_costs', document.getElementById('exp-other').value || 0);
+    form.append('only_empty', document.getElementById('exp-only-empty').checked ? 'true' : 'false');
+    const resp = await fetch('/api/inventory/set-expenses', {method:'POST', body:form});
+    const data = await resp.json();
+    document.getElementById('exp-result').innerHTML = `<span class="text-green-700">Обновлено ${data.updated} позиций. Цены пересчитаны.</span>`;
+    loadInventory(); loadSummary();
 }
 
 loadSummary();

@@ -98,7 +98,7 @@ class EmexBudget(Base):
 
 
 class Inventory(Base):
-    """Склад: остатки, закупочная цена в валюте, наценки, авто-цены."""
+    """Склад: остатки, полная себестоимость, авто-цены."""
     __tablename__ = "inventory"
     id = Column(Integer, primary_key=True)
     part_number = Column(String(100), nullable=False)
@@ -106,23 +106,30 @@ class Inventory(Base):
     brand = Column(String(200), default="")
     description = Column(Text, default="")
     quantity = Column(Integer, default=0)
-    purchase_price = Column(Float, default=0)         # закупочная цена
+    # Закупка
+    purchase_price = Column(Float, default=0)         # цена за единицу в валюте
     purchase_currency = Column(String(10), default="USD")
-    # Наценки в процентах для каждого канала
+    purchase_rate = Column(Float, default=0)           # курс на дату закупки
+    # Расходы на единицу (в рублях)
+    logistics_cost = Column(Float, default=0)          # логистика
+    customs_duty = Column(Float, default=0)            # таможенная пошлина
+    vat_cost = Column(Float, default=0)                # НДС
+    warehouse_cost = Column(Float, default=0)          # склад/3PL
+    other_costs = Column(Float, default=0)             # прочие расходы
+    # Рассчитанная себестоимость (закупка*курс + все расходы)
+    cost_rub = Column(Float, default=0)
+    # Наценки
+    markup_mode = Column(String(10), default="pct")    # pct / rub / manual
     markup_order_pct = Column(Float, default=30)
     markup_3pl_pct = Column(Float, default=35)
     markup_3pl_emex_pct = Column(Float, default=40)
-    # Наценки в рублях (альтернативный режим)
     markup_order_rub = Column(Float, default=0)
     markup_3pl_rub = Column(Float, default=0)
     markup_3pl_emex_rub = Column(Float, default=0)
-    # Режим наценки: pct / rub / manual
-    markup_mode = Column(String(10), default="pct")
-    # Рассчитанные продажные цены в рублях
-    price_order = Column(Float, default=0)
-    price_3pl = Column(Float, default=0)
-    price_3pl_emex = Column(Float, default=0)
-    cost_rub = Column(Float, default=0)
+    # Продажные цены
+    price_order = Column(Float, default=0)       # Заказ под клиента
+    price_3pl = Column(Float, default=0)         # Продажа со склада 3PL
+    price_3pl_emex = Column(Float, default=0)    # Продажа через EMEX
     last_rate_used = Column(Float, default=0)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -136,6 +143,7 @@ class StockTransaction(Base):
     tx_type = Column(String(20), nullable=False)  # receipt / sale / return / adjust
     quantity = Column(Integer, nullable=False)
     price = Column(Float, default=0)
+    sale_rate = Column(Float, default=0)          # курс USD/₽ на дату операции (для валютной переоценки)
     notes = Column(Text, default="")
     username = Column(String(100), default="")
     created_at = Column(DateTime, server_default=func.now())

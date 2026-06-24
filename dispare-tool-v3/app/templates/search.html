@@ -201,9 +201,9 @@ function renderOneResult(item) {
     html += `<div><div class="text-xs font-medium text-gray-400 uppercase mb-1">Наши цены (₽)</div>`;
     if (our) {
         const rows = [
-            ['Под заказ', our.price_order, pos.order],
-            ['3PL', our.price_3pl, pos['3pl']],
-            ['3PL + Emex', our.price_3pl_emex, pos['3pl_emex']],
+            ['Заказ под клиента', our.price_order, pos.order],
+            ['Склад 3PL', our.price_3pl, pos['3pl']],
+            ['Через EMEX', our.price_3pl_emex, pos['3pl_emex']],
         ];
         html += `<table class="w-full text-sm">`;
         for (const [label, price, position] of rows) {
