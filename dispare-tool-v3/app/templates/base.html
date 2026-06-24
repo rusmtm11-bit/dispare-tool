@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Dispare Trading{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    {% if user %}
+    <nav class="bg-white border-b border-gray-200 px-4 py-3">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+            <div class="flex items-center gap-6">
+                <a href="/" class="text-lg font-bold text-gray-900">Dispare</a>
+                <div class="hidden md:flex items-center gap-1">
+                    <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Обзор</a>
+                    <a href="/search" class="nav-link {% if request.url.path == '/search' %}active{% endif %}">Поиск</a>
+                    <a href="/catalog" class="nav-link {% if request.url.path == '/catalog' %}active{% endif %}">Каталог</a>
+                    <a href="/our-prices" class="nav-link {% if request.url.path == '/our-prices' %}active{% endif %}">Наши цены</a>
+                    <a href="/inventory" class="nav-link {% if request.url.path == '/inventory' %}active{% endif %}">Склад</a>
+                    <a href="/watchlist" class="nav-link {% if request.url.path == '/watchlist' %}active{% endif %}">Мониторинг</a>
+                    {% if user.is_admin %}
+                    <a href="/settings" class="nav-link {% if request.url.path == '/settings' %}active{% endif %}">Настройки</a>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="flex items-center gap-3 text-sm text-gray-500">
+                <span>{{ user.username }}</span>
+                <a href="/logout" class="text-red-500 hover:text-red-700">Выйти</a>
+            </div>
+        </div>
+        <!-- Mobile menu -->
+        <div class="md:hidden flex flex-wrap gap-1 mt-2">
+            <a href="/" class="nav-link-sm">Обзор</a>
+            <a href="/search" class="nav-link-sm">Поиск</a>
+            <a href="/catalog" class="nav-link-sm">Каталог</a>
+            <a href="/our-prices" class="nav-link-sm">Цены</a>
+            <a href="/inventory" class="nav-link-sm">Склад</a>
+            <a href="/watchlist" class="nav-link-sm">Мониторинг</a>
+        </div>
+    </nav>
+    {% endif %}
+
+    <main class="max-w-7xl mx-auto px-4 py-6">
+        {% block content %}{% endblock %}
+    </main>
+
+    <script src="/static/js/app.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

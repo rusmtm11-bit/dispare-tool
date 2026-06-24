@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Настройки — Dispare{% endblock %}
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">Настройки</h1>
+</div>
+
+<!-- Пользователи -->
+<div class="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+    <h2 class="font-semibold text-gray-900 mb-3">Пользователи</h2>
+
+    {% if request.query_params.get('error') == 'exists' %}
+    <div class="bg-red-50 text-red-700 text-sm rounded-lg p-3 mb-3">Пользователь с таким именем уже существует</div>
+    {% endif %}
+    {% if request.query_params.get('ok') %}
+    <div class="bg-green-50 text-green-700 text-sm rounded-lg p-3 mb-3">Пользователь добавлен</div>
+    {% endif %}
+
+    <table class="w-full text-sm mb-4">
+        <tr class="text-gray-500 text-left"><th class="pr-4">Логин</th><th class="pr-4">Роль</th><th>Создан</th></tr>
+        {% for u in users %}
+        <tr>
+            <td class="pr-4 font-medium">{{ u.username }}</td>
+            <td class="pr-4">{{ "Админ" if u.is_admin else "Пользователь" }}</td>
+            <td class="text-gray-400 text-xs">{{ u.created_at.strftime('%d.%m.%Y') if u.created_at else '' }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <form method="post" action="/settings/add-user" class="flex gap-2 items-end">
+        <div>
+            <label class="text-xs text-gray-500">Логин</label>
+            <input type="text" name="username" required class="input-field">
+        </div>
+        <div>
+            <label class="text-xs text-gray-500">Пароль</label>
+            <input type="password" name="password" required class="input-field">
+        </div>
+        <button type="submit" class="btn-primary">Добавить</button>
+    </form>
+</div>
+
+<!-- Информация о конфигурации -->
+<div class="bg-white rounded-xl border border-gray-200 p-5">
+    <h2 class="font-semibold text-gray-900 mb-3">Конфигурация</h2>
+    <p class="text-sm text-gray-500 mb-2">
+        Настройки Emex API, бюджетов и расписания задаются через файл <code class="bg-gray-100 px-1 rounded">.env</code> на сервере.
+    </p>
+    <div class="text-sm space-y-1 text-gray-600">
+        <p><b>EMEX_API_KEY</b> — ваш ключ API Emex</p>
+        <p><b>EMEX_DAILY_BUDGET</b> — дневной лимит расходов на запросы (₽)</p>
+        <p><b>EMEX_MONTHLY_BUDGET</b> — месячный лимит (₽)</p>
+        <p><b>EMEX_CACHE_TTL_HOURS</b> — сколько часов считать кэш актуальным</p>
+        <p><b>EMEX_COST_PER_REQUEST</b> — стоимость одного запроса (₽)</p>
+    </div>
+</div>
+{% endblock %}

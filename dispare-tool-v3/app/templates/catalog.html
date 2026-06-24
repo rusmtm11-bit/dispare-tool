@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Каталог — Dispare{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">Каталог поставщиков</h1>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <!-- Добавить поставщика -->
+    <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <h2 class="font-semibold text-gray-900 mb-3">Добавить поставщика</h2>
+        <div class="space-y-3">
+            <input type="text" id="sup-name" placeholder="Название поставщика" class="input-field">
+            <select id="sup-currency" class="input-field">
+                <option value="USD">USD</option>
+                <option value="EUR">EUR</option>
+                <option value="CNY">CNY (юань)</option>
+                <option value="AED">AED (дирхам)</option>
+                <option value="TRY">TRY (лира)</option>
+                <option value="RUB">RUB</option>
+            </select>
+            <input type="text" id="sup-notes" placeholder="Заметки (необязательно)" class="input-field">
+            <button onclick="addSupplier()" class="btn-primary w-full">Добавить</button>
+        </div>
+    </div>
+
+    <!-- Загрузить прайс -->
+    <div class="bg-white rounded-xl border border-gray-200 p-5">
+        <h2 class="font-semibold text-gray-900 mb-3">Загрузить прайс-лист</h2>
+        <div class="space-y-3">
+            <select id="upload-supplier" class="input-field">
+                <option value="">— выберите поставщика —</option>
+                {% for s in suppliers %}
+                <option value="{{ s.id }}">{{ s.name }} ({{ s.currency }})</option>
+                {% endfor %}
+            </select>
+            <input type="file" id="upload-file" accept=".xlsx,.xls,.csv" class="input-field">
+            <select id="upload-currency" class="input-field">
+                <option value="">Валюта из настроек поставщика</option>
+                <option value="USD">USD</option>
+                <option value="EUR">EUR</option>
+                <option value="CNY">CNY</option>
+                <option value="AED">AED</option>
+                <option value="RUB">RUB</option>
+            </select>
+            <button onclick="uploadCatalog()" class="btn-primary w-full">Загрузить</button>
+        </div>
+        <div id="upload-result" class="mt-3 text-sm"></div>
+    </div>
+</div>
+
+<!-- Список поставщиков -->
+<div class="mt-8 bg-white rounded-xl border border-gray-200 p-5">
+    <h2 class="font-semibold text-gray-900 mb-3">Поставщики</h2>
+    <div id="suppliers-list">Загрузка...</div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+async function loadSuppliers() {
+    const resp = await fetch('/api/catalog/suppliers');
+    const data = await resp.json();
+    const el = document.getElementById('suppliers-list');
+    if (!data.length) { el.innerHTML = '<p class="text-gray-400">Нет поставщиков</p>'; return; }
+    let html = '<table class="w-full text-sm"><tr class="text-gray-500 text-left"><th class="pr-4">Название</th><th class="pr-4">Валюта</th><th class="pr-4">Позиций</th><th>Заметки</th></tr>';
+    for (const s of data) {
+        html += `<tr><td class="pr-4 font-medium">${s.name}</td><td class="pr-4">${s.currency}</td><td class="pr-4">${s.items_count.toLocaleString('ru')}</td><td class="text-gray-400">${s.notes||''}</td></tr>`;
+    }
+    html += '</table>';
+    el.innerHTML = html;
+}
+
+async function addSupplier() {
+    const form = new FormData();
+    form.append('name', document.getElementById('sup-name').value);
+    form.append('currency', document.getElementById('sup-currency').value);
+    form.append('notes', document.getElementById('sup-notes').value);
+    const resp = await fetch('/api/catalog/suppliers', {method:'POST', body: form});
+    if (resp.ok) { location.reload(); } else { alert('Ошибка: ' + (await resp.json()).detail); }
+}
+
+async function uploadCatalog() {
+    const supplier = document.getElementById('upload-supplier').value;
+    const file = document.getElementById('upload-file').files[0];
+    if (!supplier) { alert('Выберите поставщика'); return; }
+    if (!file) { alert('Выберите файл'); return; }
+
+    const form = new FormData();
+    form.append('supplier_id', supplier);
+    form.append('file', file);
+    form.append('currency', document.getElementById('upload-currency').value);
+
+    const el = document.getElementById('upload-result');
+    el.innerHTML = '<span class="text-blue-600">Загрузка...</span>';
+
+    const resp = await fetch('/api/catalog/upload', {method:'POST', body: form});
+    const data = await resp.json();
+
+    if (resp.ok) {
+        el.innerHTML = `<span class="text-green-700">Готово! Добавлено: ${data.added}, обновлено: ${data.updated}, всего в файле: ${data.total_parsed}</span>`;
+        loadSuppliers();
+    } else {
+        el.innerHTML = `<span class="text-red-600">${data.detail || JSON.stringify(data)}</span>`;
+    }
+}
+
+loadSuppliers();
+</script>
+{% endblock %}

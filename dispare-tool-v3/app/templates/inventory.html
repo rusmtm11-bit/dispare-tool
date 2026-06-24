@@ -1,0 +1,335 @@
+{% extends "base.html" %}
+{% block title %}Склад — Dispare{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-gray-900">Склад</h1>
+        <p class="text-gray-500 text-sm mt-1">Остатки, цены и движение товаров</p>
+    </div>
+    <div class="flex gap-2 flex-wrap">
+        <button onclick="updateRates()" class="btn-secondary" title="Загрузить свежий курс ЦБ">Обновить курс</button>
+        <button onclick="recalcPrices()" class="btn-secondary" title="Пересчитать все цены по текущему курсу">Пересчитать цены</button>
+        <a href="/api/inventory/export" class="btn-primary">Скачать Excel</a>
+    </div>
+</div>
+
+<div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6" id="summary">
+    <div class="stat-card"><div class="text-2xl font-bold" id="s-sku">—</div><div class="text-sm text-gray-500">SKU</div></div>
+    <div class="stat-card"><div class="text-2xl font-bold" id="s-qty">—</div><div class="text-sm text-gray-500">Штук</div></div>
+    <div class="stat-card"><div class="text-2xl font-bold" id="s-usd">—</div><div class="text-sm text-gray-500">Закупка USD</div></div>
+    <div class="stat-card"><div class="text-2xl font-bold" id="s-rub">—</div><div class="text-sm text-gray-500">Закупка ₽</div></div>
+    <div class="stat-card"><div class="text-2xl font-bold" id="s-revenue">—</div><div class="text-sm text-gray-500">Выручка потенц. ₽</div></div>
+    <div class="stat-card"><div class="text-2xl font-bold" id="s-rate">—</div><div class="text-sm text-gray-500">USD/₽</div></div>
+</div>
+
+<div class="flex gap-2 mb-4 flex-wrap">
+    <button onclick="switchInvTab('list')" id="inv-tab-list" class="tab-btn active">Остатки</button>
+    <button onclick="switchInvTab('add')" id="inv-tab-add" class="tab-btn">Добавить / Редактировать</button>
+    <button onclick="switchInvTab('upload')" id="inv-tab-upload" class="tab-btn">Загрузить Excel</button>
+    <button onclick="switchInvTab('sell')" id="inv-tab-sell" class="tab-btn">Продажа / Возврат</button>
+    <button onclick="switchInvTab('markups')" id="inv-tab-markups" class="tab-btn">Наценки (массово)</button>
+</div>
+
+<!-- ОСТАТКИ -->
+<div id="inv-panel-list" class="inv-panel">
+    <div class="flex items-center gap-3 mb-4">
+        <input type="text" id="inv-search" placeholder="Поиск по артикулу..." class="input-field max-w-xs" oninput="loadInventory()">
+    </div>
+    <div id="inv-table" class="overflow-x-auto">Загрузка...</div>
+</div>
+
+<!-- ДОБАВИТЬ / РЕДАКТИРОВАТЬ -->
+<div id="inv-panel-add" class="inv-panel hidden">
+    <div class="bg-white rounded-xl border border-gray-200 p-5 max-w-2xl">
+        <h2 class="font-semibold text-gray-900 mb-3">Добавить или изменить позицию</h2>
+        <p class="text-sm text-gray-500 mb-3">Если артикул уже есть — данные обновятся.</p>
+        <div class="space-y-3">
+            <div class="grid grid-cols-3 gap-3">
+                <input type="text" id="add-pn" placeholder="Артикул" class="input-field">
+                <input type="text" id="add-brand" placeholder="Бренд" class="input-field">
+                <input type="text" id="add-desc" placeholder="Описание" class="input-field">
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+                <input type="number" id="add-qty" placeholder="Количество" class="input-field">
+                <input type="number" id="add-price" placeholder="Закупка (USD)" class="input-field" step="0.01">
+                <select id="add-currency" class="input-field">
+                    <option value="USD">USD</option><option value="EUR">EUR</option>
+                    <option value="CNY">CNY</option><option value="AED">AED</option>
+                </select>
+            </div>
+
+            <div class="border-t pt-3">
+                <label class="text-sm font-medium text-gray-700 mb-2 block">Режим наценки:</label>
+                <div class="flex gap-4 mb-3">
+                    <label class="flex items-center gap-1 text-sm"><input type="radio" name="add-mode" value="pct" checked onchange="toggleMarkupMode()"> В процентах</label>
+                    <label class="flex items-center gap-1 text-sm"><input type="radio" name="add-mode" value="rub" onchange="toggleMarkupMode()"> В рублях</label>
+                    <label class="flex items-center gap-1 text-sm"><input type="radio" name="add-mode" value="manual" onchange="toggleMarkupMode()"> Вручную</label>
+                </div>
+
+                <div id="markup-pct-fields" class="grid grid-cols-3 gap-3">
+                    <div><label class="text-xs text-gray-500">Заказ %</label><input type="number" id="add-m1" value="30" class="input-field"></div>
+                    <div><label class="text-xs text-gray-500">3PL %</label><input type="number" id="add-m2" value="35" class="input-field"></div>
+                    <div><label class="text-xs text-gray-500">3PL+Emex %</label><input type="number" id="add-m3" value="40" class="input-field"></div>
+                </div>
+                <div id="markup-rub-fields" class="grid grid-cols-3 gap-3 hidden">
+                    <div><label class="text-xs text-gray-500">Заказ ₽</label><input type="number" id="add-r1" value="3000" class="input-field"></div>
+                    <div><label class="text-xs text-gray-500">3PL ₽</label><input type="number" id="add-r2" value="4000" class="input-field"></div>
+                    <div><label class="text-xs text-gray-500">3PL+Emex ₽</label><input type="number" id="add-r3" value="5000" class="input-field"></div>
+                </div>
+                <div id="markup-manual-fields" class="grid grid-cols-3 gap-3 hidden">
+                    <div><label class="text-xs text-gray-500">Цена заказ ₽</label><input type="number" id="add-p1" class="input-field" step="0.01"></div>
+                    <div><label class="text-xs text-gray-500">Цена 3PL ₽</label><input type="number" id="add-p2" class="input-field" step="0.01"></div>
+                    <div><label class="text-xs text-gray-500">Цена 3PL+Emex ₽</label><input type="number" id="add-p3" class="input-field" step="0.01"></div>
+                </div>
+            </div>
+
+            <button onclick="addItem()" class="btn-primary w-full">Сохранить</button>
+        </div>
+        <div id="add-result" class="mt-3 text-sm"></div>
+    </div>
+</div>
+
+<!-- ЗАГРУЗКА EXCEL -->
+<div id="inv-panel-upload" class="inv-panel hidden">
+    <div class="bg-white rounded-xl border border-gray-200 p-5 max-w-lg">
+        <h2 class="font-semibold text-gray-900 mb-3">Загрузить остатки из Excel</h2>
+        <p class="text-sm text-gray-500 mb-3">Формат: артикул, [бренд], [описание], количество, цена (USD).</p>
+        <input type="file" id="inv-file" accept=".xlsx,.xls,.csv" class="input-field mb-3">
+        <div class="grid grid-cols-3 gap-3 mb-3">
+            <div><label class="text-xs text-gray-500">Наценка заказ %</label><input type="number" id="upl-m1" value="30" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">Наценка 3PL %</label><input type="number" id="upl-m2" value="35" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">Наценка 3PL+E %</label><input type="number" id="upl-m3" value="40" class="input-field"></div>
+        </div>
+        <button onclick="uploadInventory()" class="btn-primary w-full">Загрузить</button>
+        <div id="upl-result" class="mt-3 text-sm"></div>
+    </div>
+</div>
+
+<!-- ПРОДАЖА / ВОЗВРАТ -->
+<div id="inv-panel-sell" class="inv-panel hidden">
+    <div class="bg-white rounded-xl border border-gray-200 p-5 max-w-lg">
+        <h2 class="font-semibold text-gray-900 mb-3">Движение товара</h2>
+        <div class="space-y-3">
+            <input type="text" id="tx-pn" placeholder="Артикул" class="input-field">
+            <select id="tx-type" class="input-field">
+                <option value="sale">Продажа (списание)</option>
+                <option value="return">Возврат (зачисление)</option>
+                <option value="receipt">Поступление (добавить)</option>
+                <option value="adjust">Корректировка (установить кол-во)</option>
+            </select>
+            <input type="number" id="tx-qty" placeholder="Количество" class="input-field" min="1">
+            <input type="number" id="tx-price" placeholder="Цена сделки ₽ (необязательно)" class="input-field" step="0.01">
+            <input type="text" id="tx-notes" placeholder="Комментарий" class="input-field">
+            <button onclick="recordTx()" class="btn-primary w-full">Записать</button>
+        </div>
+        <div id="tx-result" class="mt-3 text-sm"></div>
+    </div>
+</div>
+
+<!-- МАССОВЫЕ НАЦЕНКИ -->
+<div id="inv-panel-markups" class="inv-panel hidden">
+    <div class="bg-white rounded-xl border border-gray-200 p-5 max-w-lg">
+        <h2 class="font-semibold text-gray-900 mb-3">Изменить наценки для всех позиций</h2>
+        <div class="mb-3">
+            <label class="text-sm font-medium text-gray-700 mb-2 block">Режим:</label>
+            <div class="flex gap-4 mb-3">
+                <label class="flex items-center gap-1 text-sm"><input type="radio" name="mk-mode" value="pct" checked onchange="toggleMkMode()"> В процентах</label>
+                <label class="flex items-center gap-1 text-sm"><input type="radio" name="mk-mode" value="rub" onchange="toggleMkMode()"> В рублях</label>
+            </div>
+        </div>
+        <div id="mk-pct" class="grid grid-cols-3 gap-3 mb-3">
+            <div><label class="text-xs text-gray-500">Заказ %</label><input type="number" id="mk-m1" value="30" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">3PL %</label><input type="number" id="mk-m2" value="35" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">3PL+Emex %</label><input type="number" id="mk-m3" value="40" class="input-field"></div>
+        </div>
+        <div id="mk-rub" class="grid grid-cols-3 gap-3 mb-3 hidden">
+            <div><label class="text-xs text-gray-500">Заказ ₽</label><input type="number" id="mk-r1" value="3000" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">3PL ₽</label><input type="number" id="mk-r2" value="4000" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">3PL+Emex ₽</label><input type="number" id="mk-r3" value="5000" class="input-field"></div>
+        </div>
+        <button onclick="updateMarkups()" class="btn-primary w-full">Применить ко всем</button>
+        <div id="mk-result" class="mt-3 text-sm"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function switchInvTab(tab) {
+    document.querySelectorAll('.inv-panel').forEach(p => p.classList.add('hidden'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('inv-panel-' + tab).classList.remove('hidden');
+    document.getElementById('inv-tab-' + tab).classList.add('active');
+}
+function toggleMarkupMode() {
+    const mode = document.querySelector('input[name="add-mode"]:checked').value;
+    document.getElementById('markup-pct-fields').classList.toggle('hidden', mode !== 'pct');
+    document.getElementById('markup-rub-fields').classList.toggle('hidden', mode !== 'rub');
+    document.getElementById('markup-manual-fields').classList.toggle('hidden', mode !== 'manual');
+}
+function toggleMkMode() {
+    const mode = document.querySelector('input[name="mk-mode"]:checked').value;
+    document.getElementById('mk-pct').classList.toggle('hidden', mode !== 'pct');
+    document.getElementById('mk-rub').classList.toggle('hidden', mode !== 'rub');
+}
+
+async function loadSummary() {
+    const resp = await fetch('/api/inventory/summary');
+    const d = await resp.json();
+    document.getElementById('s-sku').textContent = d.total_sku;
+    document.getElementById('s-qty').textContent = d.total_quantity.toLocaleString('ru');
+    document.getElementById('s-usd').textContent = '$' + d.total_value_usd.toLocaleString('ru');
+    document.getElementById('s-rub').textContent = d.total_value_rub.toLocaleString('ru') + ' ₽';
+    document.getElementById('s-revenue').textContent = d.total_revenue_potential.toLocaleString('ru') + ' ₽';
+    document.getElementById('s-rate').textContent = d.usd_rate ? d.usd_rate.toFixed(2) : '—';
+}
+
+async function loadInventory() {
+    const q = document.getElementById('inv-search').value;
+    const resp = await fetch(`/api/inventory/?q=${encodeURIComponent(q)}`);
+    const data = await resp.json();
+    const el = document.getElementById('inv-table');
+    if (!data.length) { el.innerHTML = '<p class="text-gray-400">Нет данных. Добавьте товар или загрузите Excel.</p>'; return; }
+    let html = `<table class="w-full text-sm"><tr class="text-gray-500 text-left">
+        <th class="pr-2">Артикул</th><th class="pr-2">Бренд</th><th class="pr-2 text-right">Кол-во</th>
+        <th class="pr-2 text-right">Закупка</th><th class="pr-2 text-right">Себест. ₽</th>
+        <th class="pr-2 text-right">Заказ ₽</th><th class="pr-2 text-right">3PL ₽</th>
+        <th class="pr-2 text-right">3PL+E ₽</th><th class="pr-2 text-right">Маржа ₽</th><th></th></tr>`;
+    for (const i of data) {
+        const qc = i.quantity <= 0 ? 'text-red-600 font-bold' : (i.quantity <= 5 ? 'text-orange-500' : '');
+        html += `<tr class="hover:bg-gray-50">
+            <td class="pr-2 font-mono font-medium cursor-pointer hover:text-blue-600" onclick="editItem(${JSON.stringify(i).replace(/"/g,'&quot;')})">${i.part_number}</td>
+            <td class="pr-2">${i.brand}</td>
+            <td class="pr-2 text-right ${qc}">${i.quantity}</td>
+            <td class="pr-2 text-right font-mono text-gray-500">$${i.purchase_price}</td>
+            <td class="pr-2 text-right font-mono text-gray-500">${i.cost_rub ? i.cost_rub.toLocaleString('ru') : '—'}</td>
+            <td class="pr-2 text-right font-mono">${i.price_order ? i.price_order.toLocaleString('ru') : '0'}</td>
+            <td class="pr-2 text-right font-mono">${i.price_3pl ? i.price_3pl.toLocaleString('ru') : '0'}</td>
+            <td class="pr-2 text-right font-mono">${i.price_3pl_emex ? i.price_3pl_emex.toLocaleString('ru') : '0'}</td>
+            <td class="pr-2 text-right font-mono ${i.margin_order > 0 ? 'text-green-600' : 'text-red-600'}">${i.margin_order ? i.margin_order.toLocaleString('ru') : '—'}</td>
+            <td><button onclick="quickSell('${i.part_number}')" class="text-xs text-blue-600 hover:text-blue-800">Продать</button></td>
+        </tr>`;
+    }
+    html += '</table>';
+    el.innerHTML = html;
+}
+
+function editItem(item) {
+    switchInvTab('add');
+    document.getElementById('add-pn').value = item.part_number;
+    document.getElementById('add-brand').value = item.brand;
+    document.getElementById('add-desc').value = item.description;
+    document.getElementById('add-qty').value = item.quantity;
+    document.getElementById('add-price').value = item.purchase_price;
+    document.getElementById('add-currency').value = item.purchase_currency;
+    document.getElementById('add-m1').value = item.markup_order_pct;
+    document.getElementById('add-m2').value = item.markup_3pl_pct;
+    document.getElementById('add-m3').value = item.markup_3pl_emex_pct;
+    document.getElementById('add-r1').value = item.markup_order_rub || 0;
+    document.getElementById('add-r2').value = item.markup_3pl_rub || 0;
+    document.getElementById('add-r3').value = item.markup_3pl_emex_rub || 0;
+    const mode = item.markup_mode || 'pct';
+    document.querySelector(`input[name="add-mode"][value="${mode}"]`).checked = true;
+    toggleMarkupMode();
+}
+
+function quickSell(pn) {
+    switchInvTab('sell');
+    document.getElementById('tx-pn').value = pn;
+    document.getElementById('tx-type').value = 'sale';
+    document.getElementById('tx-qty').value = 1;
+    document.getElementById('tx-qty').focus();
+}
+
+async function updateRates() {
+    const resp = await fetch('/api/inventory/update-rates', {method:'POST'});
+    const d = await resp.json();
+    if (d.error) { alert(d.error); }
+    else { alert(`Курсы обновлены! USD = ${d.usd.toFixed(2)} ₽, EUR = ${d.eur.toFixed(2)} ₽`); loadSummary(); }
+}
+
+async function addItem() {
+    const mode = document.querySelector('input[name="add-mode"]:checked').value;
+    const form = new FormData();
+    form.append('part_number', document.getElementById('add-pn').value);
+    form.append('brand', document.getElementById('add-brand').value);
+    form.append('description', document.getElementById('add-desc').value);
+    form.append('quantity', document.getElementById('add-qty').value || 0);
+    form.append('purchase_price', document.getElementById('add-price').value || 0);
+    form.append('purchase_currency', document.getElementById('add-currency').value);
+    form.append('markup_mode', mode);
+    form.append('markup_order_pct', document.getElementById('add-m1').value);
+    form.append('markup_3pl_pct', document.getElementById('add-m2').value);
+    form.append('markup_3pl_emex_pct', document.getElementById('add-m3').value);
+    form.append('markup_order_rub', document.getElementById('add-r1').value || 0);
+    form.append('markup_3pl_rub', document.getElementById('add-r2').value || 0);
+    form.append('markup_3pl_emex_rub', document.getElementById('add-r3').value || 0);
+    if (mode === 'manual') {
+        form.append('price_order_manual', document.getElementById('add-p1').value || 0);
+        form.append('price_3pl_manual', document.getElementById('add-p2').value || 0);
+        form.append('price_3pl_emex_manual', document.getElementById('add-p3').value || 0);
+    }
+    const resp = await fetch('/api/inventory/add', {method:'POST', body:form});
+    const data = await resp.json();
+    document.getElementById('add-result').innerHTML = `<span class="text-green-700">${data.action === 'added' ? 'Добавлено' : 'Обновлено'}</span>`;
+    loadInventory(); loadSummary();
+}
+
+async function uploadInventory() {
+    const file = document.getElementById('inv-file').files[0];
+    if (!file) { alert('Выберите файл'); return; }
+    const form = new FormData();
+    form.append('file', file);
+    form.append('default_markup_order', document.getElementById('upl-m1').value);
+    form.append('default_markup_3pl', document.getElementById('upl-m2').value);
+    form.append('default_markup_3pl_emex', document.getElementById('upl-m3').value);
+    const el = document.getElementById('upl-result');
+    el.innerHTML = '<span class="text-blue-600">Загрузка...</span>';
+    const resp = await fetch('/api/inventory/upload', {method:'POST', body:form});
+    const data = await resp.json();
+    el.innerHTML = data.error ? `<span class="text-red-600">${data.error}</span>` : `<span class="text-green-700">Добавлено: ${data.added}, обновлено: ${data.updated}</span>`;
+    loadInventory(); loadSummary();
+}
+
+async function recordTx() {
+    const form = new FormData();
+    form.append('part_number', document.getElementById('tx-pn').value);
+    form.append('tx_type', document.getElementById('tx-type').value);
+    form.append('quantity', document.getElementById('tx-qty').value);
+    form.append('price', document.getElementById('tx-price').value || 0);
+    form.append('notes', document.getElementById('tx-notes').value);
+    const resp = await fetch('/api/inventory/transaction', {method:'POST', body:form});
+    const data = await resp.json();
+    const el = document.getElementById('tx-result');
+    if (data.error) { el.innerHTML = `<span class="text-red-600">${data.error}</span>`; }
+    else { el.innerHTML = `<span class="text-green-700">Записано. Остаток: ${data.new_quantity} шт.</span>`; }
+    loadInventory(); loadSummary();
+}
+
+async function recalcPrices() {
+    const resp = await fetch('/api/inventory/recalc-prices', {method:'POST'});
+    const data = await resp.json();
+    alert(`Пересчитано ${data.recalculated} позиций по курсу ${data.usd_rate.toFixed(2)} ₽/USD`);
+    loadInventory(); loadSummary();
+}
+
+async function updateMarkups() {
+    const mode = document.querySelector('input[name="mk-mode"]:checked').value;
+    const form = new FormData();
+    form.append('markup_mode', mode);
+    form.append('markup_order_pct', document.getElementById('mk-m1').value);
+    form.append('markup_3pl_pct', document.getElementById('mk-m2').value);
+    form.append('markup_3pl_emex_pct', document.getElementById('mk-m3').value);
+    form.append('markup_order_rub', document.getElementById('mk-r1').value || 0);
+    form.append('markup_3pl_rub', document.getElementById('mk-r2').value || 0);
+    form.append('markup_3pl_emex_rub', document.getElementById('mk-r3').value || 0);
+    const resp = await fetch('/api/inventory/update-markups', {method:'POST', body:form});
+    const data = await resp.json();
+    document.getElementById('mk-result').innerHTML = `<span class="text-green-700">Обновлено ${data.updated} позиций</span>`;
+    loadInventory();
+}
+
+loadSummary();
+loadInventory();
+</script>
+{% endblock %}

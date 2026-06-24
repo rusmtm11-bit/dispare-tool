@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Обзор — Dispare{% endblock %}
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">Обзор</h1>
+</div>
+
+<!-- Карточки статистики -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+    <div class="stat-card">
+        <div class="text-2xl font-bold text-gray-900">{{ "{:,}".format(stats.catalog_items) }}</div>
+        <div class="text-sm text-gray-500">Позиций в каталоге</div>
+    </div>
+    <div class="stat-card">
+        <div class="text-2xl font-bold text-gray-900">{{ stats.our_prices }}</div>
+        <div class="text-sm text-gray-500">Наших цен</div>
+    </div>
+    <div class="stat-card">
+        <div class="text-2xl font-bold text-gray-900">{{ stats.watchlist }}</div>
+        <div class="text-sm text-gray-500">На мониторинге</div>
+    </div>
+    <div class="stat-card">
+        <div class="text-2xl font-bold text-gray-900">{{ stats.suppliers }}</div>
+        <div class="text-sm text-gray-500">Поставщиков</div>
+    </div>
+</div>
+
+<!-- Бюджет Emex -->
+<div class="bg-white rounded-xl border border-gray-200 p-6 mb-8">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Бюджет Emex</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div>
+            <div class="text-sm text-gray-500">Сегодня запросов</div>
+            <div class="text-xl font-bold">{{ budget.today_requests }}</div>
+        </div>
+        <div>
+            <div class="text-sm text-gray-500">Сегодня потрачено</div>
+            <div class="text-xl font-bold">{{ "%.2f"|format(budget.today_cost) }} ₽</div>
+        </div>
+        <div>
+            <div class="text-sm text-gray-500">За месяц потрачено</div>
+            <div class="text-xl font-bold">{{ "%.2f"|format(budget.month_cost) }} ₽</div>
+        </div>
+        <div>
+            <div class="text-sm text-gray-500">Лимит в день</div>
+            <div class="text-xl font-bold">{{ "%.0f"|format(budget.daily_budget) }} ₽</div>
+        </div>
+    </div>
+    {% if budget.today_cost > budget.daily_budget * 0.8 %}
+    <div class="mt-3 text-sm text-orange-600 bg-orange-50 rounded-lg p-2">
+        Внимание: использовано более 80% дневного бюджета Emex
+    </div>
+    {% endif %}
+</div>
+
+<!-- Быстрый поиск -->
+<div class="bg-white rounded-xl border border-gray-200 p-6">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Быстрый поиск</h2>
+    <form action="/search" method="get" class="flex gap-2">
+        <input type="text" name="q" placeholder="Введите артикул..."
+               class="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+        <button type="submit" class="btn-primary">Найти</button>
+    </form>
+</div>
+{% endblock %}
