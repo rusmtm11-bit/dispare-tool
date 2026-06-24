@@ -1,0 +1,22 @@
+services:
+  app:
+    build: .
+    container_name: dispare-app
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    expose:
+      - "8000"
+
+  nginx:
+    image: nginx:alpine
+    container_name: dispare-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - app

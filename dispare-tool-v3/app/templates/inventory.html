@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+{% block title %}Склад — Dispare{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-gray-900">Склад</h1>
+        <p class="text-gray-500 text-sm mt-1">Остатки, цены и движение товаров</p>
+    </div>
+    <div class="flex gap-2">
+        <button onclick="recalcPrices()" class="btn-secondary" title="Пересчитать все цены по текущему курсу">Пересчитать цены</button>
+        <a href="/api/inventory/export" class="btn-primary">Скачать Excel</a>
+    </div>
+</div>
+
+<!-- Сводка -->
+<div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6" id="summary">
+    <div class="stat-card"><div class="text-2xl font-bold" id="s-sku">—</div><div class="text-sm text-gray-500">SKU</div></div>
+    <div class="stat-card"><div class="text-2xl font-bold" id="s-qty">—</div><div class="text-sm text-gray-500">Штук всего</div></div>
+    <div class="stat-card"><div class="text-2xl font-bold" id="s-usd">—</div><div class="text-sm text-gray-500">Стоимость (USD)</div></div>
+    <div class="stat-card"><div class="text-2xl font-bold" id="s-rub">—</div><div class="text-sm text-gray-500">Стоимость (₽)</div></div>
+    <div class="stat-card"><div class="text-2xl font-bold" id="s-rate">—</div><div class="text-sm text-gray-500">Курс USD/₽</div></div>
+</div>
+
+<!-- Табы -->
+<div class="flex gap-2 mb-4">
+    <button onclick="switchInvTab('list')" id="inv-tab-list" class="tab-btn active">Остатки</button>
+    <button onclick="switchInvTab('add')" id="inv-tab-add" class="tab-btn">Добавить товар</button>
+    <button onclick="switchInvTab('upload')" id="inv-tab-upload" class="tab-btn">Загрузить Excel</button>
+    <button onclick="switchInvTab('sell')" id="inv-tab-sell" class="tab-btn">Продажа / Возврат</button>
+    <button onclick="switchInvTab('markups')" id="inv-tab-markups" class="tab-btn">Наценки</button>
+</div>
+
+<!-- Список остатков -->
+<div id="inv-panel-list" class="inv-panel">
+    <div class="flex items-center gap-3 mb-4">
+        <input type="text" id="inv-search" placeholder="Поиск по артикулу..." class="input-field max-w-xs" oninput="loadInventory()">
+    </div>
+    <div id="inv-table" class="overflow-x-auto">Загрузка...</div>
+</div>
+
+<!-- Добавить товар -->
+<div id="inv-panel-add" class="inv-panel hidden">
+    <div class="bg-white rounded-xl border border-gray-200 p-5 max-w-lg">
+        <h2 class="font-semibold text-gray-900 mb-3">Добавить позицию на склад</h2>
+        <div class="space-y-3">
+            <input type="text" id="add-pn" placeholder="Артикул" class="input-field">
+            <input type="text" id="add-brand" placeholder="Бренд" class="input-field">
+            <input type="text" id="add-desc" placeholder="Описание" class="input-field">
+            <div class="grid grid-cols-2 gap-3">
+                <input type="number" id="add-qty" placeholder="Количество" class="input-field">
+                <input type="number" id="add-price" placeholder="Закупка (USD)" class="input-field" step="0.01">
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+                <div><label class="text-xs text-gray-500">Наценка заказ %</label><input type="number" id="add-m1" value="30" class="input-field"></div>
+                <div><label class="text-xs text-gray-500">Наценка 3PL %</label><input type="number" id="add-m2" value="35" class="input-field"></div>
+                <div><label class="text-xs text-gray-500">Наценка 3PL+Emex %</label><input type="number" id="add-m3" value="40" class="input-field"></div>
+            </div>
+            <button onclick="addItem()" class="btn-primary w-full">Добавить</button>
+        </div>
+        <div id="add-result" class="mt-3 text-sm"></div>
+    </div>
+</div>
+
+<!-- Загрузка Excel -->
+<div id="inv-panel-upload" class="inv-panel hidden">
+    <div class="bg-white rounded-xl border border-gray-200 p-5 max-w-lg">
+        <h2 class="font-semibold text-gray-900 mb-3">Загрузить остатки из Excel</h2>
+        <p class="text-sm text-gray-500 mb-3">
+            Формат: артикул, [бренд], [описание], количество, цена закупки (USD).<br>
+            Или минимально: артикул, количество, цена.
+        </p>
+        <input type="file" id="inv-file" accept=".xlsx,.xls,.csv" class="input-field mb-3">
+        <div class="grid grid-cols-3 gap-3 mb-3">
+            <div><label class="text-xs text-gray-500">Наценка заказ %</label><input type="number" id="upl-m1" value="30" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">Наценка 3PL %</label><input type="number" id="upl-m2" value="35" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">Наценка 3PL+Emex %</label><input type="number" id="upl-m3" value="40" class="input-field"></div>
+        </div>
+        <button onclick="uploadInventory()" class="btn-primary w-full">Загрузить</button>
+        <div id="upl-result" class="mt-3 text-sm"></div>
+    </div>
+</div>
+
+<!-- Продажа / Возврат -->
+<div id="inv-panel-sell" class="inv-panel hidden">
+    <div class="bg-white rounded-xl border border-gray-200 p-5 max-w-lg">
+        <h2 class="font-semibold text-gray-900 mb-3">Движение товара</h2>
+        <div class="space-y-3">
+            <input type="text" id="tx-pn" placeholder="Артикул" class="input-field">
+            <select id="tx-type" class="input-field">
+                <option value="sale">Продажа (списание)</option>
+                <option value="return">Возврат (зачисление)</option>
+                <option value="adjust">Корректировка (установить кол-во)</option>
+            </select>
+            <input type="number" id="tx-qty" placeholder="Количество" class="input-field" min="1">
+            <input type="number" id="tx-price" placeholder="Цена продажи ₽ (необязательно)" class="input-field" step="0.01">
+            <input type="text" id="tx-notes" placeholder="Комментарий" class="input-field">
+            <button onclick="recordTx()" class="btn-primary w-full">Записать</button>
+        </div>
+        <div id="tx-result" class="mt-3 text-sm"></div>
+    </div>
+</div>
+
+<!-- Массовое изменение наценок -->
+<div id="inv-panel-markups" class="inv-panel hidden">
+    <div class="bg-white rounded-xl border border-gray-200 p-5 max-w-lg">
+        <h2 class="font-semibold text-gray-900 mb-3">Изменить наценки для всех позиций</h2>
+        <p class="text-sm text-gray-500 mb-3">Это обновит наценки и пересчитает все цены по текущему курсу.</p>
+        <div class="grid grid-cols-3 gap-3 mb-3">
+            <div><label class="text-xs text-gray-500">Заказ %</label><input type="number" id="mk-m1" value="30" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">3PL %</label><input type="number" id="mk-m2" value="35" class="input-field"></div>
+            <div><label class="text-xs text-gray-500">3PL+Emex %</label><input type="number" id="mk-m3" value="40" class="input-field"></div>
+        </div>
+        <button onclick="updateMarkups()" class="btn-primary w-full">Применить ко всем</button>
+        <div id="mk-result" class="mt-3 text-sm"></div>
+    </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+function switchInvTab(tab) {
+    document.querySelectorAll('.inv-panel').forEach(p => p.classList.add('hidden'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('inv-panel-' + tab).classList.remove('hidden');
+    document.getElementById('inv-tab-' + tab).classList.add('active');
+}
+
+async function loadSummary() {
+    const resp = await fetch('/api/inventory/summary');
+    const d = await resp.json();
+    document.getElementById('s-sku').textContent = d.total_sku;
+    document.getElementById('s-qty').textContent = d.total_quantity.toLocaleString('ru');
+    document.getElementById('s-usd').textContent = '$' + d.total_value_usd.toLocaleString('ru');
+    document.getElementById('s-rub').textContent = d.total_value_rub.toLocaleString('ru') + ' ₽';
+    document.getElementById('s-rate').textContent = d.usd_rate ? d.usd_rate.toFixed(2) : '—';
+}
+
+async function loadInventory() {
+    const q = document.getElementById('inv-search').value;
+    const resp = await fetch(`/api/inventory/?q=${encodeURIComponent(q)}`);
+    const data = await resp.json();
+    const el = document.getElementById('inv-table');
+    if (!data.length) { el.innerHTML = '<p class="text-gray-400">Нет данных</p>'; return; }
+    let html = `<table class="w-full text-sm">
+        <tr class="text-gray-500 text-left">
+            <th class="pr-2">Артикул</th><th class="pr-2">Бренд</th><th class="pr-2 text-right">Кол-во</th>
+            <th class="pr-2 text-right">Закупка</th><th class="pr-2 text-right">Заказ ₽</th>
+            <th class="pr-2 text-right">3PL ₽</th><th class="pr-2 text-right">3PL+Emex ₽</th><th>Курс</th></tr>`;
+    for (const i of data) {
+        const qtyClass = i.quantity <= 0 ? 'text-red-600 font-bold' : (i.quantity <= 5 ? 'text-orange-500 font-medium' : '');
+        html += `<tr class="hover:bg-gray-50 cursor-pointer" onclick="showHistory('${i.part_number}')">
+            <td class="pr-2 font-mono font-medium">${i.part_number}</td>
+            <td class="pr-2">${i.brand}</td>
+            <td class="pr-2 text-right ${qtyClass}">${i.quantity}</td>
+            <td class="pr-2 text-right font-mono">$${i.purchase_price}</td>
+            <td class="pr-2 text-right font-mono">${i.price_order.toLocaleString('ru')}</td>
+            <td class="pr-2 text-right font-mono">${i.price_3pl.toLocaleString('ru')}</td>
+            <td class="pr-2 text-right font-mono">${i.price_3pl_emex.toLocaleString('ru')}</td>
+            <td class="text-gray-400 text-xs">${i.last_rate_used ? i.last_rate_used.toFixed(2) : '—'}</td>
+        </tr>`;
+    }
+    html += '</table>';
+    el.innerHTML = html;
+}
+
+async function addItem() {
+    const form = new FormData();
+    form.append('part_number', document.getElementById('add-pn').value);
+    form.append('brand', document.getElementById('add-brand').value);
+    form.append('description', document.getElementById('add-desc').value);
+    form.append('quantity', document.getElementById('add-qty').value || 0);
+    form.append('purchase_price', document.getElementById('add-price').value || 0);
+    form.append('markup_order_pct', document.getElementById('add-m1').value);
+    form.append('markup_3pl_pct', document.getElementById('add-m2').value);
+    form.append('markup_3pl_emex_pct', document.getElementById('add-m3').value);
+    const resp = await fetch('/api/inventory/add', {method:'POST', body:form});
+    const data = await resp.json();
+    document.getElementById('add-result').innerHTML = `<span class="text-green-700">${data.action === 'added' ? 'Добавлено' : 'Обновлено'}</span>`;
+    loadInventory(); loadSummary();
+}
+
+async function uploadInventory() {
+    const file = document.getElementById('inv-file').files[0];
+    if (!file) { alert('Выберите файл'); return; }
+    const form = new FormData();
+    form.append('file', file);
+    form.append('default_markup_order', document.getElementById('upl-m1').value);
+    form.append('default_markup_3pl', document.getElementById('upl-m2').value);
+    form.append('default_markup_3pl_emex', document.getElementById('upl-m3').value);
+    const el = document.getElementById('upl-result');
+    el.innerHTML = '<span class="text-blue-600">Загрузка...</span>';
+    const resp = await fetch('/api/inventory/upload', {method:'POST', body:form});
+    const data = await resp.json();
+    el.innerHTML = data.error
+        ? `<span class="text-red-600">${data.error}</span>`
+        : `<span class="text-green-700">Добавлено: ${data.added}, обновлено: ${data.updated}</span>`;
+    loadInventory(); loadSummary();
+}
+
+async function recordTx() {
+    const form = new FormData();
+    form.append('part_number', document.getElementById('tx-pn').value);
+    form.append('tx_type', document.getElementById('tx-type').value);
+    form.append('quantity', document.getElementById('tx-qty').value);
+    form.append('price', document.getElementById('tx-price').value || 0);
+    form.append('notes', document.getElementById('tx-notes').value);
+    const resp = await fetch('/api/inventory/transaction', {method:'POST', body:form});
+    const data = await resp.json();
+    const el = document.getElementById('tx-result');
+    if (data.error) { el.innerHTML = `<span class="text-red-600">${data.error}</span>`; }
+    else { el.innerHTML = `<span class="text-green-700">Записано. Остаток: ${data.new_quantity} шт.</span>`; }
+    loadInventory(); loadSummary();
+}
+
+async function recalcPrices() {
+    const resp = await fetch('/api/inventory/recalc-prices', {method:'POST'});
+    const data = await resp.json();
+    alert(`Пересчитано ${data.recalculated} позиций по курсу ${data.usd_rate} ₽/USD`);
+    loadInventory(); loadSummary();
+}
+
+async function updateMarkups() {
+    const form = new FormData();
+    form.append('markup_order_pct', document.getElementById('mk-m1').value);
+    form.append('markup_3pl_pct', document.getElementById('mk-m2').value);
+    form.append('markup_3pl_emex_pct', document.getElementById('mk-m3').value);
+    const resp = await fetch('/api/inventory/update-markups', {method:'POST', body:form});
+    const data = await resp.json();
+    document.getElementById('mk-result').innerHTML = `<span class="text-green-700">Обновлено ${data.updated} позиций</span>`;
+    loadInventory();
+}
+
+async function showHistory(pn) {
+    const resp = await fetch(`/api/inventory/history/${encodeURIComponent(pn)}`);
+    const data = await resp.json();
+    if (!data.length) { alert('Нет истории по этому артикулу'); return; }
+    let msg = `История ${pn}:\n\n`;
+    for (const t of data) {
+        const d = new Date(t.created_at).toLocaleString('ru');
+        const types = {sale:'Продажа', return:'Возврат', receipt:'Поступление', adjust:'Корректировка'};
+        msg += `${d} | ${types[t.type]||t.type} | ${t.quantity} шт. | ${t.username} | ${t.notes}\n`;
+    }
+    alert(msg);
+}
+
+loadSummary();
+loadInventory();
+</script>
+{% endblock %}
