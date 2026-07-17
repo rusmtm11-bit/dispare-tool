@@ -20,6 +20,7 @@
                     <a href="/catalog" class="nav-link {% if request.url.path == '/catalog' %}active{% endif %}">Каталог</a>
                     <a href="/our-prices" class="nav-link {% if request.url.path == '/our-prices' %}active{% endif %}">Наши цены</a>
                     <a href="/inventory" class="nav-link {% if request.url.path == '/inventory' %}active{% endif %}">Склад</a>
+                    <a href="/emex" class="nav-link {% if request.url.path == '/emex' %}active{% endif %}">Emex</a>
                     <a href="/watchlist" class="nav-link {% if request.url.path == '/watchlist' %}active{% endif %}">Мониторинг</a>
                     {% if user.is_admin %}
                     <a href="/settings" class="nav-link {% if request.url.path == '/settings' %}active{% endif %}">Настройки</a>
@@ -38,6 +39,7 @@
             <a href="/catalog" class="nav-link-sm">Каталог</a>
             <a href="/our-prices" class="nav-link-sm">Цены</a>
             <a href="/inventory" class="nav-link-sm">Склад</a>
+            <a href="/emex" class="nav-link-sm">Emex</a>
             <a href="/watchlist" class="nav-link-sm">Мониторинг</a>
         </div>
     </nav>

@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+{% block title %}Emex — Dispare Trading{% endblock %}
+{% block content %}
+{% raw %}
+<style>
+#ex{--ink:#141821;--muted:#5B6472;--faint:#8A93A1;--line:#DCE1E8;--line2:#C9D0D9;
+ --steel:#2D4A7C;--steel-soft:#E6ECF5;--steel-ink:#1E3557;--panel:#F5F7F9;
+ --pos:#137A50;--pos-soft:#E2F1EA;--neg:#B23A2E;--neg-soft:#F7E7E4;--warn:#9A6B18;--warn-soft:#F6ECD8;--r:10px;
+ font-family:Inter,system-ui,sans-serif;color:var(--ink)}
+#ex .num{font-variant-numeric:tabular-nums}
+#ex .card{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;margin-bottom:16px}
+#ex h2{font-size:16px;font-weight:600;margin:0 0 2px}
+#ex .sub{font-size:12.5px;color:var(--faint);margin-bottom:14px}
+#ex .row{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+#ex .flab{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:600}
+#ex .seg{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:2px}
+#ex .seg button{border:0;background:none;font:inherit;font-size:13px;color:var(--muted);padding:5px 12px;border-radius:6px;cursor:pointer}
+#ex .seg button.on{background:var(--steel);color:#fff;font-weight:500}
+#ex .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px}
+#ex .kpi{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
+#ex .kpi .k{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);margin-bottom:8px}
+#ex .kpi .v{font-size:24px;font-weight:600;letter-spacing:-.01em}
+#ex .kpi .s{font-size:12px;color:var(--muted);margin-top:3px}
+#ex .pos{color:var(--pos)}#ex .neg{color:var(--neg)}
+#ex table{width:100%;border-collapse:collapse;font-size:13px}
+#ex th{text-align:right;font-weight:600;color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:0 10px 8px;border-bottom:1px solid var(--line)}
+#ex th:first-child,#ex td:first-child{text-align:left}
+#ex td{padding:9px 10px;border-bottom:1px solid var(--line)}
+#ex tr:last-child td{border-bottom:0}
+#ex .tfoot td{border-top:2px solid var(--line2);font-weight:600;padding-top:11px}
+#ex .chip{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;font-weight:500}
+#ex .chip.n{background:var(--neg-soft);color:var(--neg)}#ex .chip.p{background:var(--pos-soft);color:var(--pos)}
+#ex .chip.w{background:var(--warn-soft);color:var(--warn)}#ex .chip.g{background:var(--panel);color:var(--muted)}
+#ex .exp-row,#ex .exp-head{display:grid;grid-template-columns:1fr 150px 110px 34px;gap:10px;align-items:center}
+#ex .exp-row{margin-bottom:9px}
+#ex .exp-head{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--faint);margin-bottom:8px}
+#ex .exp-row input,#ex .exp-row select,#ex .priceinput{font:inherit;font-size:13px;border:1px solid var(--line2);border-radius:7px;padding:7px 9px;background:#fff;color:var(--ink);width:100%}
+#ex .exp-row .num{text-align:right}
+#ex .priceinput{width:92px;text-align:right;background:var(--panel)}
+#ex .xbtn{border:1px solid var(--line2);background:#fff;color:var(--faint);border-radius:7px;height:34px;cursor:pointer;font-size:16px}
+#ex .xbtn:hover{color:var(--neg);border-color:var(--neg)}
+#ex .addbtn{margin-top:6px;border:1px dashed var(--line2);background:var(--panel);color:var(--steel);border-radius:8px;padding:8px 14px;font:inherit;font-size:13px;font-weight:500;cursor:pointer}
+#ex .btn{border:0;background:var(--steel);color:#fff;font:inherit;font-weight:500;font-size:13.5px;padding:10px 18px;border-radius:8px;cursor:pointer}
+#ex .btn:hover{background:var(--steel-ink)}
+#ex .btn.ghost{background:#fff;color:var(--steel);border:1px solid var(--line2)}
+#ex .feednote{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding:11px 14px;background:var(--steel-soft);border-radius:8px;font-size:12.5px;color:var(--steel-ink)}
+#ex .feednote code{background:#fff;padding:2px 7px;border-radius:5px;border:1px solid var(--line);word-break:break-all}
+#ex .scroll{max-height:440px;overflow:auto}
+#ex .chartbox{position:relative;height:300px}
+#ex .up-summary{margin-top:12px;font-size:13px}
+#ex .up-summary .line{padding:3px 0;color:var(--muted)}
+#ex .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:12px 20px;border-radius:10px;font-size:13.5px;opacity:0;pointer-events:none;transition:.25s;z-index:60}
+#ex .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+@media(max-width:840px){#ex .kpis{grid-template-columns:repeat(2,1fr)}}
+</style>
+{% endraw %}
+
+<div id="ex" data-token="{{ price_token }}">
+  <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px">
+    <div><h2 style="font-size:20px">Emex — продажи и прайс</h2><div class="sub" style="margin:0">заказы, склад, бухгалтер, аналитика и цены в одном месте</div></div>
+  </div>
+
+  <!-- Загрузка заказа + ссылка -->
+  <div class="card">
+    <h2>Обработать заказ Emex</h2>
+    <div class="sub">скачайте файл заказа (LQLD) у Emex и загрузите сюда — остаток спишется сам, а Emex увидит его через 3 часа.</div>
+    <div class="row">
+      <input type="file" id="orderFile" accept=".xls,.xlsx" style="font-size:13px">
+      <button class="btn" id="processBtn">Обработать</button>
+      <span id="upStatus" style="font-size:13px;color:var(--muted)"></span>
+    </div>
+    <div id="upResult" class="up-summary"></div>
+    <div class="feednote">
+      <span>Прайс для Emex по секретной ссылке:</span>
+      <code id="feedUrl"></code>
+      <button class="btn ghost" id="copyFeed" style="padding:6px 12px">Копировать</button>
+    </div>
+  </div>
+
+  <!-- Фильтры -->
+  <div class="card"><div class="row" style="gap:22px">
+    <div class="row" style="gap:8px"><span class="flab">Период</span><div class="seg" id="segPeriod"></div></div>
+    <div class="row" style="gap:8px"><span class="flab">Тип</span><div class="seg" id="segType"></div></div>
+    <div class="row" style="gap:8px"><span class="flab">Разрез</span><div class="seg" id="segDim"></div></div>
+  </div></div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="card">
+    <h2 id="chartTitle">Прибыль по артикулам</h2>
+    <div class="sub">после себестоимости и всех расходов</div>
+    <div class="chartbox"><canvas id="chart"></canvas></div>
+  </div>
+
+  <div class="card">
+    <h2>Разбивка</h2><div class="sub" id="tableSub">по артикулам</div>
+    <div style="overflow:auto"><table id="detail"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>Расходы</h2><div class="sub">сверх себестоимости. Меняйте — пересчитается везде и сохранится.</div>
+    <div class="exp-head"><span>Название</span><span>Тип</span><span>Значение</span><span></span></div>
+    <div id="expList"></div>
+    <button class="addbtn" id="addExp">+ добавить расход</button>
+  </div>
+
+  <div class="card">
+    <h2>Прайс для Emex</h2><div class="sub">ваша цена с НДС. Сохраните — обновится файл по ссылке, Emex подхватит сам.</div>
+    <div class="scroll"><table id="price"></table></div>
+    <div class="row" style="margin-top:14px"><button class="btn" id="savePrice">Сохранить прайс</button>
+      <span style="font-size:12.5px;color:var(--muted)">изменено: <b id="editedCount" class="num">0</b></span></div>
+  </div>
+
+  <div id="empty" style="display:none;text-align:center;color:var(--faint);padding:30px">
+    На складе пока нет позиций или продаж. Добавьте товар в разделе «Склад» и обработайте первый заказ.
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+{% endblock %}
+
+{% block scripts %}
+{% raw %}
+<script>
+const PRICE_TOKEN=document.getElementById("ex").dataset.token;
+const VAT=1.22;
+let CAT={}, SALES=[], expenses=[], priceOverride={};
+const state={period:"all",type:"all",dim:"art"};
+const $=id=>document.getElementById(id);
+const rub=n=>Math.round(n).toLocaleString("ru-RU")+" ₽";
+const pct=n=>(n>=0?"":"−")+Math.abs(n*100).toFixed(0)+"%";
+const dLabel=d=>{const p=(d||"").split("-");return p.length===3?p[2]+"."+p[1]:d;};
+
+function feedUrl(){return location.origin+"/price/"+PRICE_TOKEN+".xlsx";}
+
+async function boot(){
+  $("feedUrl").textContent=feedUrl();
+  const r=await fetch("/emex/data"); const d=await r.json();
+  CAT={}; d.catalog.forEach(c=>CAT[c.art]=c);
+  SALES=d.sales;
+  expenses=[
+    {name:"Комиссия Emex",kind:"pct",value:d.settings.commission},
+    {name:"Страховка Emex",kind:"pct",value:d.settings.insurance},
+    {name:"Сортировка Emex",kind:"unit",value:d.settings.sorting},
+    {name:"Логистика (партия)",kind:"fixed",value:d.settings.logistics},
+  ];
+  renderAll();
+}
+
+function filtered(){return SALES.filter(s=>(state.period==="all"||s.date===state.period)&&(state.type==="all"||(CAT[s.art]&&CAT[s.art].type===state.type)));}
+function expenseModel(){
+  const p=expenses.filter(e=>e.kind==="pct").reduce((a,e)=>a+(+e.value||0)/100,0);
+  const u=expenses.filter(e=>e.kind==="unit").reduce((a,e)=>a+(+e.value||0),0);
+  const f=expenses.filter(e=>e.kind==="fixed").reduce((a,e)=>a+(+e.value||0),0);
+  return {p,u,f};
+}
+function lineCalc(s,em){const c=(CAT[s.art]&&CAT[s.art].net)||0;const revNet=s.price/VAT*s.qty,revGross=s.price*s.qty;return {revNet,revGross,cost:c*s.qty,varExp:revGross*em.p+em.u*s.qty,qty:s.qty};}
+function totals(rows){const em=expenseModel();let revNet=0,cost=0,varExp=0,qty=0;rows.forEach(s=>{const c=lineCalc(s,em);revNet+=c.revNet;cost+=c.cost;varExp+=c.varExp;qty+=c.qty;});const exp=varExp+em.f,profit=revNet-cost-exp;return {revNet,cost,exp,varExp,fixed:em.f,qty,profit,margin:revNet?profit/revNet:0};}
+function gkey(s){return state.dim==="art"?s.art:state.dim==="type"?((CAT[s.art]&&CAT[s.art].type)||"—"):s.date;}
+function grouped(){const rows=filtered(),tot=totals(rows),g={};rows.forEach(s=>{(g[gkey(s)]=g[gkey(s)]||[]).push(s);});
+  const out=Object.entries(g).map(([k,rs])=>{const t=totals(rs),share=tot.qty?t.qty/tot.qty:0,fix=tot.fixed*share,profit=t.revNet-t.cost-t.varExp-fix;return {key:k,qty:t.qty,revNet:t.revNet,cost:t.cost,exp:t.varExp+fix,profit,margin:t.revNet?profit/t.revNet:0};});
+  out.sort((a,b)=>a.profit-b.profit);return out;}
+
+function seg(el,opts,cur,on){el.innerHTML="";opts.forEach(o=>{const b=document.createElement("button");b.textContent=o.label;b.className=o.val===cur?"on":"";b.onclick=()=>on(o.val);el.appendChild(b);});}
+function renderFilters(){
+  const dates=[...new Set(SALES.map(s=>s.date))].sort();
+  seg($("segPeriod"),[{val:"all",label:"Всё"},...dates.map(d=>({val:d,label:dLabel(d)}))],state.period,v=>{state.period=v;renderAll();});
+  const types=[...new Set(SALES.filter(s=>state.period==="all"||s.date===state.period).map(s=>(CAT[s.art]&&CAT[s.art].type)||"—"))];
+  seg($("segType"),[{val:"all",label:"Все"},...types.map(t=>({val:t,label:t.length>16?t.slice(0,15)+"…":t}))],state.type,v=>{state.type=v;renderAll();});
+  seg($("segDim"),[{val:"art",label:"Артикул"},{val:"type",label:"Тип"},{val:"day",label:"День"}],state.dim,v=>{state.dim=v;renderAll();});
+}
+function renderKPIs(){const t=totals(filtered());const c=[
+  {k:"Продано",v:t.qty+" шт",s:filtered().length+" строк"},
+  {k:"Выручка без НДС",v:rub(t.revNet)},
+  {k:"Себестоимость",v:rub(t.cost)},
+  {k:"Расходы",v:rub(t.exp),s:"Emex + логистика"},
+  {k:"Чистая прибыль",v:rub(t.profit),s:"маржа "+pct(t.margin),cls:t.profit>=0?"pos":"neg"}];
+  $("kpis").innerHTML=c.map(x=>`<div class="kpi"><div class="k">${x.k}</div><div class="v num ${x.cls||""}">${x.v}</div>${x.s?`<div class="s ${x.cls||""}">${x.s}</div>`:""}</div>`).join("");}
+let chart;
+function renderChart(){const g=grouped();$("chartTitle").textContent="Прибыль "+({art:"по артикулам",type:"по типам",day:"по дням"})[state.dim];
+  const labels=g.map(x=>state.dim==="day"?dLabel(x.key):x.key),data=g.map(x=>Math.round(x.profit)),col=data.map(v=>v>=0?"#137A50":"#B23A2E");
+  if(chart)chart.destroy();
+  chart=new Chart($("chart"),{type:"bar",data:{labels,datasets:[{data,backgroundColor:col,borderRadius:4,maxBarThickness:34}]},
+    options:{indexAxis:g.length>3?"y":"x",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>(c.raw<0?"−":"")+Math.abs(c.raw).toLocaleString("ru-RU")+" ₽"}}},
+    scales:{x:{ticks:{color:"#8A93A1",callback:v=>typeof v==="number"?(v<0?"−":"")+Math.abs(v).toLocaleString("ru-RU"):v},grid:{color:"#EDF0F3"}},y:{ticks:{color:"#5B6472",callback:v=>typeof v==="number"?(v<0?"−":"")+Math.abs(v).toLocaleString("ru-RU"):v},grid:{display:false}}}}});}
+function renderDetail(){const g=grouped(),t=totals(filtered());$("tableSub").textContent=({art:"по артикулам",type:"по типам",day:"по дням"})[state.dim];
+  let h=`<thead><tr><th>${({art:"Артикул",type:"Тип",day:"День"})[state.dim]}</th><th>Продано</th><th>Выручка</th><th>Себест.</th><th>Расходы</th><th>Прибыль</th><th>Маржа</th></tr></thead><tbody>`;
+  g.forEach(x=>{const lbl=state.dim==="day"?dLabel(x.key):x.key;const sub=state.dim==="art"&&CAT[x.key]?`<div style="font-size:11px;color:var(--faint)">${CAT[x.key].type||""}</div>`:"";
+    h+=`<tr><td>${lbl}${sub}</td><td class="num">${x.qty}</td><td class="num">${rub(x.revNet)}</td><td class="num">${rub(x.cost)}</td><td class="num">${rub(x.exp)}</td><td class="num ${x.profit>=0?"pos":"neg"}">${rub(x.profit)}</td><td class="num"><span class="chip ${x.profit>=0?"p":"n"}">${pct(x.margin)}</span></td></tr>`;});
+  h+=`</tbody><tfoot><tr class="tfoot"><td>Итого</td><td class="num">${t.qty}</td><td class="num">${rub(t.revNet)}</td><td class="num">${rub(t.cost)}</td><td class="num">${rub(t.exp)}</td><td class="num ${t.profit>=0?"pos":"neg"}">${rub(t.profit)}</td><td class="num">${pct(t.margin)}</td></tr></tfoot>`;
+  $("detail").innerHTML=h;}
+let saveT;
+function renderExpenses(){const box=$("expList");box.innerHTML="";
+  expenses.forEach((e,i)=>{const row=document.createElement("div");row.className="exp-row";
+    row.innerHTML=`<input value="${e.name}" data-i="${i}" data-f="name">
+      <select data-i="${i}" data-f="kind"><option value="pct"${e.kind==="pct"?" selected":""}>% от выручки</option><option value="unit"${e.kind==="unit"?" selected":""}>₽ за штуку</option><option value="fixed"${e.kind==="fixed"?" selected":""}>₽ разово</option></select>
+      <input class="num" value="${e.value}" data-i="${i}" data-f="value" inputmode="decimal">
+      <button class="xbtn" data-del="${i}">×</button>`;box.appendChild(row);});
+  box.querySelectorAll("input,select").forEach(el=>el.oninput=()=>{const i=+el.dataset.i,f=el.dataset.f;expenses[i][f]=f==="value"?(parseFloat(el.value.replace(",","."))||0):el.value;recompute();saveSettings();});
+  box.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{expenses.splice(+b.dataset.del,1);renderExpenses();recompute();saveSettings();});}
+function saveSettings(){clearTimeout(saveT);saveT=setTimeout(()=>{
+  const g=k=>{const e=expenses.find(x=>x.name.toLowerCase().includes(k));return e?(+e.value||0):0;};
+  fetch("/emex/save-settings",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({commission:g("комисс"),insurance:g("страхов"),sorting:g("сортиров"),logistics:g("логист")})});},700);}
+
+function unitMargin(art){const c=CAT[art],em=expenseModel();const price=priceOverride[art]??c.price;const net=price/VAT,pu=price*em.p+em.u,profit=net-pu-c.net;return {price,net,profit,margin:net?profit/net:0};}
+function alertChip(art){const c=CAT[art],m=unitMargin(art);
+  if(m.net<c.net)return `<span class="chip n">ниже закупа</span>`;
+  if(m.profit<0)return `<span class="chip n">убыток после расходов</span>`;
+  if(c.market&&m.price>c.market)return `<span class="chip w">выше рынка</span>`;
+  if(m.margin<0.15)return `<span class="chip w">низкая маржа</span>`;
+  return `<span class="chip p">ок</span>`;}
+function renderPrice(){const arts=Object.keys(CAT);
+  let h=`<thead><tr><th>Артикул</th><th>Тип</th><th>Остаток</th><th>Себест.</th><th>Ваша цена с НДС</th><th>Маржа</th><th>Статус</th></tr></thead><tbody>`;
+  arts.forEach(art=>{const c=CAT[art],m=unitMargin(art);const ed=priceOverride[art]!==undefined&&Math.abs(priceOverride[art]-c.price)>0.001;
+    h+=`<tr><td>${art}${ed?' <span class="chip g">изм.</span>':""}</td><td style="color:var(--muted)">${(c.type||"").slice(0,22)}</td><td class="num">${c.stock}</td><td class="num">${rub(c.net)}</td>
+      <td style="text-align:right"><input class="priceinput num" value="${(priceOverride[art]??c.price).toFixed(2)}" data-art="${art}" inputmode="decimal"></td>
+      <td class="num ${m.margin>=0?"pos":"neg"}">${pct(m.margin)}</td><td>${alertChip(art)}</td></tr>`;});
+  h+="</tbody>";$("price").innerHTML=h;
+  $("price").querySelectorAll(".priceinput").forEach(inp=>inp.oninput=()=>{const v=parseFloat(inp.value.replace(",","."));priceOverride[inp.dataset.art]=isNaN(v)?CAT[inp.dataset.art].price:v;updatePriceRows();});}
+function updatePriceRows(){const rows=$("price").querySelectorAll("tbody tr");let ed=0;
+  Object.keys(CAT).forEach((art,i)=>{const c=CAT[art],m=unitMargin(art),tr=rows[i];const is=priceOverride[art]!==undefined&&Math.abs(priceOverride[art]-c.price)>0.001;if(is)ed++;
+    tr.children[5].className="num "+(m.margin>=0?"pos":"neg");tr.children[5].textContent=pct(m.margin);tr.children[6].innerHTML=alertChip(art);tr.children[0].innerHTML=art+(is?' <span class="chip g">изм.</span>':"");});
+  $("editedCount").textContent=ed;}
+
+function recompute(){renderKPIs();renderChart();renderDetail();updatePriceRows();}
+function renderAll(){
+  if(Object.keys(CAT).length===0){document.querySelectorAll("#ex .card").forEach((c,i)=>{if(i>0)c.style.display="none";});$("empty").style.display="block";return;}
+  renderFilters();renderKPIs();renderChart();renderDetail();renderExpenses();renderPrice();}
+
+/* загрузка заказа */
+$("processBtn").onclick=async()=>{
+  const f=$("orderFile").files[0];if(!f){toast("Выберите файл заказа");return;}
+  $("upStatus").textContent="Обрабатываю…";$("processBtn").disabled=true;
+  const fd=new FormData();fd.append("file",f);
+  try{const r=await fetch("/emex/upload",{method:"POST",body:fd});const d=await r.json();
+    if(!d.ok){$("upStatus").textContent="";$("upResult").innerHTML=`<div class="chip n">${d.error||"Ошибка"}</div>`;$("processBtn").disabled=false;return;}
+    $("upStatus").textContent="Готово";
+    let miss=d.missing.length?`<div class="line"><span class="chip w">нет на складе: ${d.missing.map(m=>m.art).join(", ")}</span></div>`:"";
+    $("upResult").innerHTML=`
+      <div class="line"><b>Заявка ${d.req_no}</b> · доставка ${d.deliver} · ${d.articles} артик., ${d.units} шт</div>
+      ${d.changes.map(c=>`<div class="line">${c.art}: ${c.old} − ${c.sold} → <b>${c.new}</b></div>`).join("")}
+      ${miss}
+      <div class="row" style="margin-top:10px">
+        <a class="btn ghost" href="/emex/download?name=${encodeURIComponent(d.warehouse_file)}">Скачать для склада</a>
+        <a class="btn ghost" href="/emex/download?name=${encodeURIComponent(d.accountant_file)}">Скачать для бухгалтера</a>
+      </div>`;
+    await boot();  // обновить дашборд и остатки
+  }catch(e){$("upStatus").textContent="";$("upResult").innerHTML=`<div class="chip n">Ошибка: ${e}</div>`;}
+  $("processBtn").disabled=false;
+};
+/* сохранить прайс */
+$("savePrice").onclick=async()=>{
+  const items=Object.keys(priceOverride).filter(a=>Math.abs(priceOverride[a]-CAT[a].price)>0.001).map(a=>({art:a,price:priceOverride[a]}));
+  if(!items.length){toast("Изменений нет");return;}
+  const r=await fetch("/emex/save-price",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items})});
+  const d=await r.json();
+  items.forEach(it=>{CAT[it.art].price=it.price;delete priceOverride[it.art];});
+  renderPrice();recompute();
+  toast(`Прайс сохранён (${d.updated} поз.). Emex подхватит в течение 3 часов.`);
+};
+$("addExp").onclick=()=>{expenses.push({name:"Новый расход",kind:"fixed",value:0});renderExpenses();recompute();};
+$("copyFeed").onclick=()=>{navigator.clipboard.writeText(feedUrl());toast("Ссылка скопирована");};
+let tt;function toast(m){const el=$("toast");el.textContent=m;el.classList.add("show");clearTimeout(tt);tt=setTimeout(()=>el.classList.remove("show"),3200);}
+
+boot();
+</script>
+{% endraw %}
+{% endblock %}
