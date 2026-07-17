@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, Integer, String, Float, Boolean, DateTime, Text, UniqueConstraint, Index
+    Column, Integer, String, Float, Boolean, DateTime, Date, Text, UniqueConstraint, Index
 )
 from sqlalchemy.sql import func
 from app.database import Base
@@ -131,6 +131,7 @@ class Inventory(Base):
     price_3pl = Column(Float, default=0)         # Продажа со склада 3PL
     price_3pl_emex = Column(Float, default=0)    # Продажа через EMEX
     last_rate_used = Column(Float, default=0)
+    first_stock_date = Column(Date)               # когда позиция впервые появилась на складе
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -143,6 +144,8 @@ class StockTransaction(Base):
     tx_type = Column(String(20), nullable=False)  # receipt / sale / return / adjust
     quantity = Column(Integer, nullable=False)
     price = Column(Float, default=0)
+    cost_at_sale = Column(Float, default=0)       # СНИМОК себестоимости на момент продажи
+    batch_id = Column(Integer, default=0)         # из какой партии ушло (для ФИФО)
     sale_rate = Column(Float, default=0)          # курс USD/₽ на дату операции (для валютной переоценки)
     notes = Column(Text, default="")
     username = Column(String(100), default="")
@@ -166,3 +169,28 @@ class EmexSetting(Base):
     key = Column(String(50), nullable=False, unique=True)
     value = Column(String(200), default="")
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class Batch(Base):
+    """Партия закупки (первая авиа, вторая и т.д.)."""
+    __tablename__ = "batches"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(150), nullable=False)
+    arrival_date = Column(Date)                    # когда приехала на склад
+    start_sale_date = Column(Date)                 # с какой даты продаём (для оборачиваемости)
+    note = Column(Text, default="")
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class BatchLot(Base):
+    """Поступление конкретного артикула в партии.
+    Хранится всегда — это задел под ФИФО: даже считая по средней,
+    мы знаем, сколько и по какой цене приехало в каждой партии."""
+    __tablename__ = "batch_lots"
+    id = Column(Integer, primary_key=True)
+    batch_id = Column(Integer, index=True, nullable=False)
+    part_number_clean = Column(String(100), index=True, nullable=False)
+    qty_in = Column(Integer, default=0)            # приехало
+    qty_left = Column(Integer, default=0)          # осталось от этой партии (для ФИФО)
+    cost_rub = Column(Float, default=0)            # себестоимость единицы В ЭТОЙ партии
+    received_at = Column(Date)
