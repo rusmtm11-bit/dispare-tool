@@ -4,7 +4,7 @@ import secrets
 import datetime
 from io import BytesIO
 
-from fastapi import APIRouter, Request, Depends, UploadFile, File, Body
+from fastapi import APIRouter, Request, Depends, UploadFile, File, Body, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -14,14 +14,22 @@ from openpyxl.styles import Font, PatternFill
 
 from app.database import get_db
 from app.auth import get_current_user, clean_part_number
-from app.models import User, Inventory, StockTransaction, EmexSetting, MarketPrice
-from app.services import emex_order
+from app.models import User, Inventory, StockTransaction, EmexSetting, MarketPrice, Batch, BatchLot
+from app.services import emex_order, batches
 
 router = APIRouter(tags=["emex"])
 templates = Jinja2Templates(directory="app/templates")
 
 OUT_DIR = "data/emex_out"
-DEFAULTS = {"commission": "6", "insurance": "9", "sorting": "30", "logistics": "0"}
+# Emex НЕ удерживает с нас комиссию/страховку/сортировку — он накручивает их
+# СВЕРХУ покупателю. Наш расход — только стикеровка (Emex удерживает из платежа).
+DEFAULTS = {
+    "sticker": "39",        # ₽/шт, с НДС (входящий НДС возмещается)
+    "sticker_vat": "1",     # 1 = в стикеровке есть НДС 22% (возмещаемый)
+    "markup": "1",          # наша наценка в настройках Emex, %
+    "shelf_markup": "46",   # накрутка Emex для анонимного покупателя, % (справочно)
+    "start_date": "2026-07-09",   # дата старта продаж (для оборачиваемости)
+}
 
 
 def _user_or_none(request: Request, db: Session):
@@ -71,33 +79,92 @@ def emex_data(request: Request, db: Session = Depends(get_db),
               user: User = Depends(get_current_user)):
     inv = db.query(Inventory).all()
     by_clean = {i.part_number_clean: i for i in inv}
-    # последняя рыночная цена по каждому артикулу (если собиралась в мониторинге)
     market = {}
     for m in db.query(MarketPrice).order_by(MarketPrice.fetched_at.asc()).all():
         market[m.part_number_clean] = m.price
+
     catalog = []
     for i in inv:
+        # сколько приехало всего (по всем партиям) — для «продано % от партии»
+        lots = db.query(BatchLot).filter(BatchLot.part_number_clean == i.part_number_clean).all()
+        init = sum(l.qty_in for l in lots) or (i.quantity or 0)
         catalog.append({
             "art": i.part_number, "clean": i.part_number_clean,
             "type": i.description or i.brand or "",
-            "net": round(i.cost_rub or 0, 2),
+            "cost": round(i.cost_rub or 0, 2),
             "price": round(i.price_3pl_emex or 0, 2),
             "stock": i.quantity or 0,
+            "init": init,
+            "since": i.first_stock_date.isoformat() if i.first_stock_date else None,
             "market": round(market[i.part_number_clean], 2) if market.get(i.part_number_clean) else None,
         })
+
     sales = []
-    q = db.query(StockTransaction).filter(StockTransaction.tx_type == "sale").order_by(StockTransaction.created_at.asc())
-    for s in q.all():
-        item = by_clean.get(s.part_number_clean)
+    q = (db.query(StockTransaction)
+           .filter(StockTransaction.tx_type == "sale")
+           .order_by(StockTransaction.created_at.asc()))
+    for s_ in q.all():
+        item = by_clean.get(s_.part_number_clean)
         sales.append({
-            "date": (s.created_at.date().isoformat() if s.created_at else ""),
-            "art": item.part_number if item else s.part_number_clean,
-            "qty": abs(s.quantity or 0),
-            "price": round(s.price or 0, 2),
+            "date": (s_.created_at.date().isoformat() if s_.created_at else ""),
+            "art": item.part_number if item else s_.part_number_clean,
+            "qty": abs(s_.quantity or 0),
+            "price": round(s_.price or 0, 2),
+            # СНИМОК себестоимости на момент продажи; если пусто (старые записи) — текущая
+            "cost": round(s_.cost_at_sale or (item.cost_rub if item else 0) or 0, 2),
+            "note": s_.notes or "",
         })
-    settings = {k: float(get_setting(db, k, v)) for k, v in DEFAULTS.items()}
+
+    settings = {k: get_setting(db, k, v) for k, v in DEFAULTS.items()}
+    batch_list = [{"id": b.id, "name": b.name,
+                   "arrival": b.arrival_date.isoformat() if b.arrival_date else None,
+                   "start": b.start_sale_date.isoformat() if b.start_sale_date else None}
+                  for b in db.query(Batch).order_by(Batch.id.asc()).all()]
     return {"catalog": catalog, "sales": sales, "settings": settings,
-            "token": get_or_create_token(db)}
+            "batches": batch_list, "token": get_or_create_token(db)}
+
+
+# ---------------- приём партии ----------------
+@router.post("/emex/batch-preview")
+async def batch_preview(file: UploadFile = File(...), db: Session = Depends(get_db),
+                        user: User = Depends(get_current_user)):
+    """Показывает, что произойдёт, НЕ меняя базу."""
+    try:
+        rows = batches.parse_batch_file(await file.read())
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"Не читается файл: {e}"}, status_code=400)
+    prev = []
+    for r in rows:
+        if r["qty"] <= 0:
+            continue
+        item = db.query(Inventory).filter(Inventory.part_number_clean == r["clean"]).first()
+        if item:
+            oq, oc = item.quantity or 0, item.cost_rub or 0
+            nq = oq + r["qty"]
+            nc = round((oq * oc + r["qty"] * r["cost"]) / nq, 2) if nq else r["cost"]
+            prev.append({"art": r["art"], "new": False, "old_qty": oq, "in_qty": r["qty"],
+                         "qty": nq, "old_cost": round(oc, 2), "in_cost": round(r["cost"], 2), "cost": nc})
+        else:
+            prev.append({"art": r["art"], "new": True, "old_qty": 0, "in_qty": r["qty"],
+                         "qty": r["qty"], "old_cost": 0, "in_cost": round(r["cost"], 2),
+                         "cost": round(r["cost"], 2)})
+    return {"ok": True, "rows": prev}
+
+
+@router.post("/emex/batch-receive")
+async def batch_receive(file: UploadFile = File(...), name: str = Form(...),
+                        arrival: str = Form(...), start_sale: str = Form(""),
+                        db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    try:
+        rows = batches.parse_batch_file(await file.read())
+        ad = datetime.date.fromisoformat(arrival)
+        sd = datetime.date.fromisoformat(start_sale) if start_sale else ad
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"Ошибка: {e}"}, status_code=400)
+    batch, report = batches.receive_batch(db, rows, name, ad, sd)
+    return {"ok": True, "batch": batch.name, "rows": report,
+            "added": sum(1 for r in report if r["new"]),
+            "merged": sum(1 for r in report if not r["new"])}
 
 
 # ---------------- загрузка заказа ----------------
@@ -174,6 +241,31 @@ def emex_save_settings(payload: dict = Body(...), db: Session = Depends(get_db),
         if k in payload:
             set_setting(db, k, str(payload[k]))
     return {"ok": True}
+
+
+@router.get("/emex/orders")
+def emex_orders(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """История заказов: группируем продажи по заметке (в ней дата заказа Emex)."""
+    inv = {i.part_number_clean: i for i in db.query(Inventory).all()}
+    grouped = {}
+    q = (db.query(StockTransaction)
+           .filter(StockTransaction.tx_type == "sale")
+           .order_by(StockTransaction.created_at.asc()))
+    for s_ in q.all():
+        key = s_.notes or (s_.created_at.strftime("%d.%m.%Y") if s_.created_at else "—")
+        it = inv.get(s_.part_number_clean)
+        grouped.setdefault(key, []).append({
+            "art": it.part_number if it else s_.part_number_clean,
+            "type": (it.description if it else ""),
+            "qty": abs(s_.quantity or 0), "price": round(s_.price or 0, 2),
+            "cost": round(s_.cost_at_sale or 0, 2),
+        })
+    out = []
+    for k, lines in grouped.items():
+        out.append({"title": k, "lines": lines,
+                    "units": sum(l["qty"] for l in lines),
+                    "sum": round(sum(l["qty"] * l["price"] for l in lines), 2)})
+    return {"orders": out}
 
 
 # ---------------- ПУБЛИЧНЫЙ прайс по секретной ссылке (без логина) ----------------
