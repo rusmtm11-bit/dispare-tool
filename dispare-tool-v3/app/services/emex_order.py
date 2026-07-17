@@ -204,6 +204,7 @@ def apply_order_to_inventory(db: Session, cons, order_date, username: str):
         db.add(StockTransaction(
             part_number_clean=clean, tx_type="sale",
             quantity=-v["qty"], price=v["price"] or 0,
+            op_date=order_date,                   # дата заказа Emex, а не дата загрузки
             cost_at_sale=item.cost_rub or 0,      # снимок: себестоимость на момент продажи
             batch_id=first_lot,
             sale_rate=cur_rate,
