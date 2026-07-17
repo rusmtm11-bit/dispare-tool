@@ -105,8 +105,9 @@ def emex_data(request: Request, db: Session = Depends(get_db),
            .order_by(StockTransaction.created_at.asc()))
     for s_ in q.all():
         item = by_clean.get(s_.part_number_clean)
+        d_ = s_.op_date or (s_.created_at.date() if s_.created_at else None)
         sales.append({
-            "date": (s_.created_at.date().isoformat() if s_.created_at else ""),
+            "date": (d_.isoformat() if d_ else ""),
             "art": item.part_number if item else s_.part_number_clean,
             "qty": abs(s_.quantity or 0),
             "price": round(s_.price or 0, 2),
@@ -250,9 +251,10 @@ def emex_orders(db: Session = Depends(get_db), user: User = Depends(get_current_
     grouped = {}
     q = (db.query(StockTransaction)
            .filter(StockTransaction.tx_type == "sale")
-           .order_by(StockTransaction.created_at.asc()))
+           .order_by(StockTransaction.op_date.asc(), StockTransaction.id.asc()))
     for s_ in q.all():
-        key = s_.notes or (s_.created_at.strftime("%d.%m.%Y") if s_.created_at else "—")
+        d_ = s_.op_date or (s_.created_at.date() if s_.created_at else None)
+        key = (d_.strftime("%d.%m.%Y") if d_ else (s_.notes or "—"))
         it = inv.get(s_.part_number_clean)
         grouped.setdefault(key, []).append({
             "art": it.part_number if it else s_.part_number_clean,
@@ -262,7 +264,7 @@ def emex_orders(db: Session = Depends(get_db), user: User = Depends(get_current_
         })
     out = []
     for k, lines in grouped.items():
-        out.append({"title": k, "lines": lines,
+        out.append({"title": "Заказ Emex от " + k, "lines": lines,
                     "units": sum(l["qty"] for l in lines),
                     "sum": round(sum(l["qty"] * l["price"] for l in lines), 2)})
     return {"orders": out}
