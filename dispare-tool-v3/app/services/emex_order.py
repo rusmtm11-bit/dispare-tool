@@ -16,7 +16,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 from sqlalchemy.orm import Session
 
-from app.models import Inventory, StockTransaction
+from app.models import Inventory, StockTransaction, BatchLot
 from app.auth import clean_part_number
 from app.services.cbr_rates import get_latest_rates
 
@@ -166,7 +166,15 @@ def build_accountant_xlsx(lines) -> bytes:
 
 
 def apply_order_to_inventory(db: Session, cons, order_date, username: str):
-    """Списывает остатки и пишет продажи. Возвращает (changes, missing)."""
+    """Списывает остатки и пишет продажи.
+
+    Важно: в продажу пишется СНИМОК себестоимости (cost_at_sale) на момент
+    сделки. Иначе при приходе новой партии средняя себестоимость изменится
+    и прибыль по прошлым продажам пересчитается задним числом.
+
+    Лоты партий (BatchLot) списываются по ФИФО — это нужно, чтобы позже
+    можно было включить учёт по ФИФО без потери истории.
+    """
     rates = get_latest_rates(db)
     cur_rate = rates.get("USD", 0)
     changes, missing = [], []
@@ -175,13 +183,32 @@ def apply_order_to_inventory(db: Session, cons, order_date, username: str):
         if not item:
             missing.append((v["raw"], v["qty"]))
             continue
-        old = item.quantity or 0
-        item.quantity = old - v["qty"]
+        old_qty = item.quantity or 0
+        item.quantity = old_qty - v["qty"]
+
+        # списываем лоты по ФИФО (для будущего ФИФО-учёта)
+        left = v["qty"]
+        first_lot = 0
+        lots = (db.query(BatchLot)
+                  .filter(BatchLot.part_number_clean == clean, BatchLot.qty_left > 0)
+                  .order_by(BatchLot.received_at.asc(), BatchLot.id.asc()).all())
+        for lot in lots:
+            if left <= 0:
+                break
+            take = min(lot.qty_left, left)
+            lot.qty_left -= take
+            left -= take
+            if not first_lot:
+                first_lot = lot.batch_id
+
         db.add(StockTransaction(
             part_number_clean=clean, tx_type="sale",
-            quantity=-v["qty"], price=v["price"] or 0, sale_rate=cur_rate,
+            quantity=-v["qty"], price=v["price"] or 0,
+            cost_at_sale=item.cost_rub or 0,      # снимок: себестоимость на момент продажи
+            batch_id=first_lot,
+            sale_rate=cur_rate,
             notes=f"Emex заказ {order_date.strftime('%d.%m.%Y')}", username=username,
         ))
-        changes.append((v["raw"], old, v["qty"], item.quantity))
+        changes.append((v["raw"], old_qty, v["qty"], item.quantity))
     db.commit()
     return changes, missing
