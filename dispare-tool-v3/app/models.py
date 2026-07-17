@@ -144,6 +144,7 @@ class StockTransaction(Base):
     tx_type = Column(String(20), nullable=False)  # receipt / sale / return / adjust
     quantity = Column(Integer, nullable=False)
     price = Column(Float, default=0)
+    op_date = Column(Date, index=True)            # ДАТА СОБЫТИЯ (когда Emex купил), не дата записи
     cost_at_sale = Column(Float, default=0)       # СНИМОК себестоимости на момент продажи
     batch_id = Column(Integer, default=0)         # из какой партии ушло (для ФИФО)
     sale_rate = Column(Float, default=0)          # курс USD/₽ на дату операции (для валютной переоценки)

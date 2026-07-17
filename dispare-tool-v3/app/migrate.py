@@ -1,7 +1,10 @@
 """Обновление базы под новую версию — БЕЗ потери данных.
 
 Что делает:
-  • добавляет в продажи снимок себестоимости (cost_at_sale) и партию (batch_id);
+  • добавляет в продажи дату события (op_date), снимок себестоимости (cost_at_sale)
+    и партию (batch_id);
+  • восстанавливает настоящие даты продаж из примечаний («Emex заказ 13.07.2026»),
+    т.к. раньше бралась дата загрузки файла, а не дата заказа;
   • добавляет в склад дату появления товара (first_stock_date);
   • создаёт таблицы партий (batches, batch_lots);
   • проставляет снимок себестоимости старым продажам (по текущей себестоимости);
@@ -37,6 +40,9 @@ def main():
         if "batch_id" not in st:
             conn.execute(text("ALTER TABLE stock_transactions ADD COLUMN batch_id INTEGER DEFAULT 0"))
             print("+ stock_transactions.batch_id")
+        if "op_date" not in st:
+            conn.execute(text("ALTER TABLE stock_transactions ADD COLUMN op_date DATE"))
+            print("+ stock_transactions.op_date")
         inv = _cols(conn, "inventory")
         if "first_stock_date" not in inv:
             conn.execute(text("ALTER TABLE inventory ADD COLUMN first_stock_date DATE"))
@@ -44,7 +50,23 @@ def main():
 
     db = SessionLocal()
     try:
-        # 3) снимок себестоимости старым продажам
+        # 3) настоящая дата продажи из примечания («Emex заказ 13.07.2026»)
+        import re
+        dated = 0
+        for s in db.query(StockTransaction).all():
+            if s.op_date:
+                continue
+            m = re.search(r"(\d{2})\.(\d{2})\.(\d{4})", s.notes or "")
+            if m:
+                s.op_date = datetime.date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+                dated += 1
+            elif s.created_at:
+                s.op_date = s.created_at.date()
+                dated += 1
+        if dated:
+            print(f"= восстановлена дата продажи у {dated} записей")
+
+        # 4) снимок себестоимости старым продажам
         costs = {i.part_number_clean: (i.cost_rub or 0) for i in db.query(Inventory).all()}
         fixed = 0
         for s in db.query(StockTransaction).filter(StockTransaction.tx_type == "sale").all():
@@ -54,14 +76,14 @@ def main():
         if fixed:
             print(f"= проставлен снимок себестоимости у {fixed} продаж")
 
-        # 4) дата появления на складе
+        # 5) дата появления на складе
         no_date = db.query(Inventory).filter(Inventory.first_stock_date.is_(None)).all()
         for i in no_date:
             i.first_stock_date = START_DEFAULT
         if no_date:
             print(f"= дата старта {START_DEFAULT:%d.%m.%Y} у {len(no_date)} позиций")
 
-        # 5) «Партия №1» из текущего склада (если партий ещё нет)
+        # 6) «Партия №1» из текущего склада (если партий ещё нет)
         if not db.query(Batch).count():
             items = db.query(Inventory).all()
             if items:
