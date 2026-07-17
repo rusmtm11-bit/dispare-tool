@@ -156,3 +156,13 @@ class User(Base):
     password_hash = Column(String(200), nullable=False)
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now())
+
+
+class EmexSetting(Base):
+    """Ключ-значение для Emex-раздела: комиссия, страховка, сортировка,
+    логистика, секретный токен прайса."""
+    __tablename__ = "emex_settings"
+    id = Column(Integer, primary_key=True)
+    key = Column(String(50), nullable=False, unique=True)
+    value = Column(String(200), default="")
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from app.database import init_db, SessionLocal
 from app.auth import ensure_admin
-from app.routers import pages, api_catalog, api_prices, api_search, api_market, api_inventory
+from app.routers import pages, api_catalog, api_prices, api_search, api_market, api_inventory, emex
 
 
 @asynccontextmanager
@@ -40,3 +40,4 @@ app.include_router(api_prices.router)
 app.include_router(api_search.router)
 app.include_router(api_market.router)
 app.include_router(api_inventory.router)
+app.include_router(emex.router)
