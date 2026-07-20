@@ -141,6 +141,10 @@ tfoot td{border-top:2px solid var(--line2);border-bottom:0;font-weight:600;paddi
     <div class="fbar" style="margin-top:12px">
       <button class="btn" id="savePrice" style="background:var(--brand);color:#fff;border-color:var(--brand)">Сохранить прайс</button>
       <span style="font-size:12.5px;color:var(--mut)">изменено: <b id="editedCount" class="num">0</b></span>
+      <span class="sep"></span>
+      <input type="file" id="impFile" accept=".xls,.xlsx" style="font-size:12.5px;max-width:210px">
+      <button class="btn" id="impPrev">Сверить цены с файлом</button>
+      <button class="btn" id="impGo">Загрузить цены</button>
     </div>
   </div>
 
@@ -148,6 +152,11 @@ tfoot td{border-top:2px solid var(--line2);border-bottom:0;font-weight:600;paddi
     <h2>Расходы и настройки</h2>
     <div class="sub">влияют на прибыль и на минимальную цену</div>
     <div class="exp" id="settings"></div>
+  </div>
+
+  <div class="card" id="impCard" style="display:none">
+    <h2>Сверка цен с файлом</h2><div class="sub">остатки не трогаются — они ведутся заказами</div>
+    <div id="impRes"></div>
   </div>
 </div>
 
@@ -169,7 +178,7 @@ tfoot td{border-top:2px solid var(--line2);border-bottom:0;font-weight:600;paddi
 </div></div>
 
 <div class="mod" id="modal"><div class="mbox">
-  <div class="mh"><h2>История заказов Emex</h2><button class="x" id="mx">×</button></div>
+  <div class="mh"><h2>История заказов Emex</h2><a class="btn" href="/emex/orders-export" style="margin-left:auto">Выгрузить в Excel</a><button class="x" id="mx" style="margin-left:8px">×</button></div>
   <div class="sub">что именно и по какой цене покупали в каждом заказе</div>
   <div id="ords"></div>
 </div></div>
@@ -418,7 +427,42 @@ $("#processBtn").onclick=async()=>{
       await boot();}
   }catch(e){$("#upResult").innerHTML=`<span class="tag n">Ошибка: ${e}</span>`;$("#upStatus").textContent="";}
   $("#processBtn").disabled=false;};
-$("#copyFeed").onclick=()=>{navigator.clipboard.writeText($("#feedUrl").textContent);toast("Ссылка скопирована");};
+function copyText(t){
+  // navigator.clipboard работает только на https, а сайт на http — нужен запасной способ
+  if(navigator.clipboard&&window.isSecureContext){
+    navigator.clipboard.writeText(t).then(()=>toast("Ссылка скопирована")).catch(()=>fallbackCopy(t));
+  }else fallbackCopy(t);
+}
+function fallbackCopy(t){
+  const ta=document.createElement("textarea");
+  ta.value=t;ta.style.position="fixed";ta.style.left="-9999px";
+  document.body.appendChild(ta);ta.select();ta.setSelectionRange(0,99999);
+  let ok=false;try{ok=document.execCommand("copy");}catch(e){}
+  document.body.removeChild(ta);
+  toast(ok?"Ссылка скопирована":"Не вышло — выделите ссылку и Ctrl+C");
+}
+$("#copyFeed").onclick=()=>copyText($("#feedUrl").textContent);
+/* ---------- импорт цен ---------- */
+function impTable(rows,missing,applied){
+  if(!rows.length)return `<div class="empty">Цены совпадают — расхождений нет</div>`;
+  let h=`<div style="font-size:13px;font-weight:600;margin-bottom:8px">${applied?"Цены обновлены":"Расхождения (пока НЕ сохранено)"}: ${rows.length}</div>`;
+  h+=`<table><thead><tr><th>Артикул</th><th>В базе</th><th>В файле</th><th>Разница</th></tr></thead><tbody>`;
+  rows.forEach(r=>{h+=`<tr><td>${r.art}</td><td class="num">${rub(r.old)}</td><td class="num"><b>${rub(r.new)}</b></td>
+    <td class="num ${r.diff>=0?"pos":"neg"}">${r.diff>0?"+":""}${r.diff}%</td></tr>`;});
+  h+="</tbody></table>";
+  if(missing.length)h+=`<div style="margin-top:8px"><span class="tag w">нет на складе: ${missing.join(", ")}</span></div>`;
+  return h;}
+async function impRun(apply){
+  const f=$("#impFile").files[0];if(!f){toast("Выберите файл прайса");return;}
+  const fd=new FormData();fd.append("file",f);fd.append("apply",apply?"1":"0");
+  const d=await (await fetch("/emex/import-prices",{method:"POST",body:fd})).json();
+  $("#impCard").style.display="block";
+  if(!d.ok){$("#impRes").innerHTML=`<span class="tag n">${d.error}</span>`;return;}
+  $("#impRes").innerHTML=impTable(d.rows,d.missing,d.applied);
+  if(apply){toast(`Загружено цен: ${d.rows.length}. Ссылка уже отдаёт новые.`);await boot();renderPrice();}
+  $("#impCard").scrollIntoView({behavior:"smooth",block:"nearest"});}
+$("#impPrev").onclick=()=>impRun(false);
+$("#impGo").onclick=()=>impRun(true);
 /* ---------- партия ---------- */
 $("#bBatch").onclick=()=>{$("#bArr").value=new Date().toISOString().slice(0,10);$("#mbatch").classList.add("on");};
 $("#bx").onclick=()=>$("#mbatch").classList.remove("on");
