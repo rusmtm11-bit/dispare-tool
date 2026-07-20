@@ -49,6 +49,7 @@ def parse_lqld(content: bytes):
     """
     raw = _read_any_excel(content)
     order_date = None
+    order_no = ""
     for _, r in raw.iterrows():
         for j in range(raw.shape[1]):
             v = r[j]
@@ -57,6 +58,11 @@ def parse_lqld(content: bytes):
                     order_date = datetime.datetime.strptime(v.strip(), "%d.%m.%Y").date()
                 except Exception:
                     pass
+            # номер заказа Emex: короткая строка только из цифр (00004)
+            if not order_no and isinstance(v, str):
+                t = v.strip()
+                if t.isdigit() and 3 <= len(t) <= 8:
+                    order_no = t
     if order_date is None:
         order_date = datetime.date.today()
 
@@ -73,7 +79,7 @@ def parse_lqld(content: bytes):
         price = None if pd.isna(r[11]) else float(str(r[11]).replace(",", "."))
         name = "" if pd.isna(r[5]) else str(r[5]).strip()
         lines.append([int(str(no).strip()), art.strip(), clean_part_number(art), name, qty, price])
-    return order_date, lines
+    return order_date, order_no, lines
 
 
 def consolidate(lines):
@@ -165,7 +171,7 @@ def build_accountant_xlsx(lines) -> bytes:
     return buf.getvalue()
 
 
-def apply_order_to_inventory(db: Session, cons, order_date, username: str):
+def apply_order_to_inventory(db: Session, cons, order_date, username: str, order_no: str = ""):
     """Списывает остатки и пишет продажи.
 
     Важно: в продажу пишется СНИМОК себестоимости (cost_at_sale) на момент
@@ -208,7 +214,9 @@ def apply_order_to_inventory(db: Session, cons, order_date, username: str):
             cost_at_sale=item.cost_rub or 0,      # снимок: себестоимость на момент продажи
             batch_id=first_lot,
             sale_rate=cur_rate,
-            notes=f"Emex заказ {order_date.strftime('%d.%m.%Y')}", username=username,
+            notes=(f"Emex заказ №{order_no} от {order_date.strftime('%d.%m.%Y')}"
+                   if order_no else f"Emex заказ {order_date.strftime('%d.%m.%Y')}"),
+            username=username,
         ))
         changes.append((v["raw"], old_qty, v["qty"], item.quantity))
     db.commit()
