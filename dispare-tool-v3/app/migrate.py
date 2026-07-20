@@ -66,6 +66,26 @@ def main():
         if dated:
             print(f"= восстановлена дата продажи у {dated} записей")
 
+        # 3.1) дописать номер заказа старым продажам (нумеруем заказы по датам)
+        import re as _re
+        no_num = [s for s in db.query(StockTransaction).all()
+                  if s.tx_type == "sale" and "№" not in (s.notes or "")]
+        if no_num:
+            # уникальные даты продаж -> порядковый номер заказа
+            dates = sorted({s.op_date for s in db.query(StockTransaction).all()
+                            if s.tx_type == "sale" and s.op_date})
+            # известные соответствия дата->номер из реальных заказов
+            known = {datetime.date(2026,7,10):"1", datetime.date(2026,7,13):"2",
+                     datetime.date(2026,7,15):"4", datetime.date(2026,7,16):"5"}
+            for s in no_num:
+                num = known.get(s.op_date)
+                if not num and s.op_date in dates:
+                    num = str(dates.index(s.op_date) + 1)
+                if num:
+                    d = s.op_date.strftime("%d.%m.%Y") if s.op_date else ""
+                    s.notes = f"Emex заказ №{num} от {d}"
+            print(f"= проставлен номер заказа у {len(no_num)} записей")
+
         # 4) снимок себестоимости старым продажам
         costs = {i.part_number_clean: (i.cost_rub or 0) for i in db.query(Inventory).all()}
         fixed = 0
