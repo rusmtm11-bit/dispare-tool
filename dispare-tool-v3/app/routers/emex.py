@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse,
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
+import pandas as pd
 import openpyxl
 from openpyxl.styles import Font, PatternFill
 
@@ -175,14 +176,14 @@ async def emex_upload(request: Request, file: UploadFile = File(...),
                       user: User = Depends(get_current_user)):
     content = await file.read()
     try:
-        order_date, lines = emex_order.parse_lqld(content)
+        order_date, order_no, lines = emex_order.parse_lqld(content)
     except Exception as e:
         return JSONResponse({"ok": False, "error": f"Не удалось прочитать файл заказа: {e}"}, status_code=400)
     if not lines:
         return JSONResponse({"ok": False, "error": "В файле не найдено строк заказа."}, status_code=400)
 
     cons = emex_order.consolidate(lines)
-    changes, missing = emex_order.apply_order_to_inventory(db, cons, order_date, user.username)
+    changes, missing = emex_order.apply_order_to_inventory(db, cons, order_date, user.username, order_no)
 
     os.makedirs(OUT_DIR, exist_ok=True)
     stamp = order_date.strftime("%d%m%y")
@@ -197,6 +198,7 @@ async def emex_upload(request: Request, file: UploadFile = File(...),
         "ok": True,
         "order_date": order_date.strftime("%d.%m.%Y"),
         "req_no": f"1/{stamp}",
+        "order_no": order_no,
         "deliver": emex_order.next_business_day(order_date).strftime("%d.%m.%Y"),
         "articles": len(cons),
         "units": sum(v["qty"] for v in cons.values()),
@@ -234,6 +236,54 @@ def emex_save_price(payload: dict = Body(...), db: Session = Depends(get_db),
     return {"ok": True, "updated": n}
 
 
+# ---------------- импорт цен из файла прайса ----------------
+@router.post("/emex/import-prices")
+async def emex_import_prices(file: UploadFile = File(...), apply: str = Form("0"),
+                             db: Session = Depends(get_db),
+                             user: User = Depends(get_current_user)):
+    """Читает файл прайса (№ детали | Марка | Цена детали | Количество)
+    и обновляет ТОЛЬКО цены. Остатки не трогает — они ведутся заказами.
+    apply=0 — показать разницу, apply=1 — записать."""
+    content = await file.read()
+    try:
+        if content[:2] == b"PK":
+            df = pd.read_excel(BytesIO(content), header=0, engine="openpyxl")
+        else:
+            df = pd.read_excel(BytesIO(content), header=0, engine="xlrd")
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"Не читается файл: {e}"}, status_code=400)
+
+    cols = list(df.columns)
+    if len(cols) < 3:
+        return JSONResponse({"ok": False, "error": "Ожидаются колонки: № детали, Марка, Цена детали"}, status_code=400)
+
+    rows, missing = [], []
+    for _, r in df.iterrows():
+        raw = r[cols[0]]
+        if pd.isna(raw):
+            continue
+        art = str(int(raw)) if isinstance(raw, float) and float(raw).is_integer() else str(raw).strip()
+        try:
+            new_price = round(float(str(r[cols[2]]).replace(",", ".")), 2)
+        except Exception:
+            continue
+        item = db.query(Inventory).filter(Inventory.part_number_clean == clean_part_number(art)).first()
+        if not item:
+            missing.append(art)
+            continue
+        old = round(item.price_3pl_emex or 0, 2)
+        if abs(old - new_price) < 0.005:
+            continue
+        rows.append({"art": item.part_number, "old": old, "new": new_price,
+                     "diff": round((new_price / old - 1) * 100, 2) if old else 0})
+        if apply == "1":
+            item.price_3pl_emex = new_price
+            item.markup_mode = "manual"
+    if apply == "1":
+        db.commit()
+    return {"ok": True, "applied": apply == "1", "rows": rows, "missing": missing}
+
+
 # ---------------- сохранить расходы ----------------
 @router.post("/emex/save-settings")
 def emex_save_settings(payload: dict = Body(...), db: Session = Depends(get_db),
@@ -246,7 +296,8 @@ def emex_save_settings(payload: dict = Body(...), db: Session = Depends(get_db),
 
 @router.get("/emex/orders")
 def emex_orders(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """История заказов: группируем продажи по заметке (в ней дата заказа Emex)."""
+    """История заказов: группируем продажи по номеру+дате заказа Emex."""
+    import re
     inv = {i.part_number_clean: i for i in db.query(Inventory).all()}
     grouped = {}
     q = (db.query(StockTransaction)
@@ -254,7 +305,10 @@ def emex_orders(db: Session = Depends(get_db), user: User = Depends(get_current_
            .order_by(StockTransaction.op_date.asc(), StockTransaction.id.asc()))
     for s_ in q.all():
         d_ = s_.op_date or (s_.created_at.date() if s_.created_at else None)
-        key = (d_.strftime("%d.%m.%Y") if d_ else (s_.notes or "—"))
+        m = re.search(r"№\s*(\d+)", s_.notes or "")
+        num = m.group(1) if m else ""
+        date_str = d_.strftime("%d.%m.%Y") if d_ else "—"
+        key = (num, date_str)
         it = inv.get(s_.part_number_clean)
         grouped.setdefault(key, []).append({
             "art": it.part_number if it else s_.part_number_clean,
@@ -263,11 +317,65 @@ def emex_orders(db: Session = Depends(get_db), user: User = Depends(get_current_
             "cost": round(s_.cost_at_sale or 0, 2),
         })
     out = []
-    for k, lines in grouped.items():
-        out.append({"title": "Заказ Emex от " + k, "lines": lines,
+    for (num, date_str), lines in grouped.items():
+        title = (f"Заказ №{num} от {date_str}" if num else f"Заказ от {date_str}")
+        out.append({"num": num, "date": date_str, "title": title, "lines": lines,
                     "units": sum(l["qty"] for l in lines),
                     "sum": round(sum(l["qty"] * l["price"] for l in lines), 2)})
     return {"orders": out}
+
+
+@router.get("/emex/orders-export")
+def emex_orders_export(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Экспорт истории заказов в Excel."""
+    data = emex_orders(db=db, user=user)["orders"]
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "История заказов"
+    head = ["Заказ №", "Дата", "Артикул", "Наименование", "Кол-во",
+            "Цена с НДС ₽/ед", "Сумма с НДС ₽", "Себест. ₽/ед", "Прибыль ₽"]
+    for j, h in enumerate(head, 1):
+        c = ws.cell(1, j, h)
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="2B4C7E")
+    r = 2
+    VAT = 1.22
+    STICK = float(get_setting(db, "sticker", "39"))
+    if get_setting(db, "sticker_vat", "1") == "1":
+        STICK = STICK / VAT
+    for o in data:
+        for ln in o["lines"]:
+            profit = (ln["price"] / VAT - ln["cost"] - STICK) * ln["qty"]
+            ws.cell(r, 1, o["num"] or "—")
+            ws.cell(r, 2, o["date"])
+            ws.cell(r, 3, ln["art"])
+            ws.cell(r, 4, ln["type"])
+            ws.cell(r, 5, ln["qty"])
+            ws.cell(r, 6, ln["price"])
+            ws.cell(r, 7, round(ln["qty"] * ln["price"], 2))
+            ws.cell(r, 8, ln["cost"])
+            ws.cell(r, 9, round(profit, 2))
+            for col in "FGHI":
+                ws[f"{col}{r}"].number_format = "#,##0.00"
+            r += 1
+    # итог
+    ws.cell(r, 4, "ИТОГО").font = Font(bold=True)
+    ws.cell(r, 5, f"=SUM(E2:E{r-1})").font = Font(bold=True)
+    ws.cell(r, 7, f"=SUM(G2:G{r-1})").font = Font(bold=True)
+    ws.cell(r, 9, f"=SUM(I2:I{r-1})").font = Font(bold=True)
+    for col in "GI":
+        ws[f"{col}{r}"].number_format = "#,##0.00"
+    for col, w in zip("ABCDEFGHI", [10, 12, 14, 40, 8, 15, 15, 14, 14]):
+        ws.column_dimensions[col].width = w
+    ws.freeze_panes = "A2"
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"История_заказов_Emex_{datetime.date.today().strftime('%d%m%y')}.xlsx"
+    from urllib.parse import quote
+    return StreamingResponse(
+        buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname)}"})
 
 
 # ---------------- ПУБЛИЧНЫЙ прайс по секретной ссылке (без логина) ----------------
@@ -280,7 +388,7 @@ def price_feed(token: str, db: Session = Depends(get_db)):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Прайс"
-    for j, h in enumerate(["№ детали", "Марка", "Цена детали", "Количество, шт."], 1):
+    for j, h in enumerate(["№ детали", "Марка", "Цена детали", "Количество, шт.", "Товарная группа"], 1):
         ws.cell(1, j, h).font = Font(bold=True)
     r = 2
     for i in db.query(Inventory).all():
