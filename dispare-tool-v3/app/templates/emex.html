@@ -192,7 +192,7 @@ tfoot td{border-top:2px solid var(--line2);border-bottom:0;font-weight:600;paddi
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 {% raw %}
 <script>
-let VAT=1.22, STICK=31.97, STICK_GROSS=39, MARKUP_SHELF=1.46, DAYS=1, START="2026-07-09";
+let VAT=1.22, STICK=31.97, STICK_GROSS=39, MARKUP_SHELF=1.46, MARKUP=0, DAYS=1, START="2026-07-09";
 let CAT={}, SALES=[], ORDERS=[], SET={}, priceOverride={}, TOKEN="";
 const $=s=>document.querySelector(s);
 const rub=n=>(n<0?"−":"")+Math.abs(Math.round(n)).toLocaleString("ru-RU")+" ₽";
@@ -208,6 +208,7 @@ async function boot(){
   STICK_GROSS=parseFloat(SET.sticker||39);
   STICK=(SET.sticker_vat==="1")?STICK_GROSS/1.22:STICK_GROSS;
   MARKUP_SHELF=1+parseFloat(SET.shelf_markup||46)/100;
+  MARKUP=parseFloat(SET.markup||0)/100;   // ваша наценка в кабинете Emex
   START=SET.start_date||"2026-07-09";
   DAYS=Math.max(1,Math.round((new Date()-new Date(START))/86400000));
   days=[...new Set(SALES.map(s=>s.d))];
@@ -368,20 +369,24 @@ $("#mx").onclick=()=>$("#modal").classList.remove("on");
 $("#modal").onclick=e=>{if(e.target.id==="modal")$("#modal").classList.remove("on");};
 
 /* ---------- прайс ---------- */
-function unitM(a){const c=CAT[a],p=priceOverride[a]??c.price,net=p/VAT,profit=net-c.cost-STICK;
-  return {p,net,profit,margin:net?profit/net:0,minp:(c.cost+STICK)*VAT,shelf:p*MARKUP_SHELF};}
+function unitM(a){const c=CAT[a],p=priceOverride[a]??c.price;
+  const paid=p*(1+MARKUP);            // сколько Emex вам заплатит (ваша цена + ваша наценка)
+  const net=paid/VAT, profit=net-c.cost-STICK;
+  const minp=(c.cost+STICK)*VAT/(1+MARKUP);  // мин. цена В ФАЙЛЕ, чтобы выйти в ноль
+  return {p,paid,net,profit,margin:net?profit/net:0,minp,shelf:paid*MARKUP_SHELF};}
 function chipFor(a){const c=CAT[a],m=unitM(a);
   if(m.p<m.minp)return `<span class="tag n">ниже нуля · нужно ${rub(m.minp)}</span>`;
   if(c.market&&m.shelf>c.market)return `<span class="tag w">витрина ${rub(m.shelf)} > рынка</span>`;
   if(m.margin<0.15)return `<span class="tag w">маржа ${pct(m.margin)}</span>`;
   return `<span class="tag p">ок · ${pct(m.margin)}</span>`;}
 function renderPrice(){
-  let h=`<thead><tr><th>Артикул</th><th>Остаток</th><th>Себест.</th><th>Мин. цена</th><th>Ваша цена с НДС</th><th>Витрина ~</th><th>Статус</th></tr></thead><tbody>`;
+  let h=`<thead><tr><th>Артикул</th><th>Остаток</th><th>Себест.</th><th>Мин. цена в файле</th><th>Ваша цена в файле</th><th>Emex платит вам</th><th>Витрина ~</th><th>Статус</th></tr></thead><tbody>`;
   Object.keys(CAT).forEach(a=>{const c=CAT[a],m=unitM(a);
     const ed=priceOverride[a]!==undefined&&Math.abs(priceOverride[a]-c.price)>0.001;
     h+=`<tr><td>${a}${ed?' <span class="tag g">изм.</span>':""}<div style="font-size:10.5px;color:var(--faint)">${c.t||""}</div></td>
     <td class="num">${c.stock}</td><td class="num">${rub(c.cost)}</td><td class="num">${rub(m.minp)}</td>
     <td style="text-align:right"><input class="priceinput" value="${(priceOverride[a]??c.price).toFixed(2)}" data-a="${a}" inputmode="decimal"></td>
+    <td class="num"><b>${rub(m.paid)}</b></td>
     <td class="num" style="color:var(--mut)">${rub(m.shelf)}</td><td>${chipFor(a)}</td></tr>`;});
   h+="</tbody>";$("#price").innerHTML=h;
   $("#price").querySelectorAll(".priceinput").forEach(i=>i.oninput=()=>{
@@ -390,7 +395,7 @@ function renderPrice(){
 function updRows(){const rows=$("#price").querySelectorAll("tbody tr");let n=0;
   Object.keys(CAT).forEach((a,i)=>{const c=CAT[a],m=unitM(a),tr=rows[i];
     const ed=priceOverride[a]!==undefined&&Math.abs(priceOverride[a]-c.price)>0.001;if(ed)n++;
-    tr.children[5].textContent=rub(m.shelf);tr.children[6].innerHTML=chipFor(a);
+    tr.children[5].innerHTML="<b>"+rub(m.paid)+"</b>";tr.children[6].textContent=rub(m.shelf);tr.children[7].innerHTML=chipFor(a);
     tr.children[0].innerHTML=a+(ed?' <span class="tag g">изм.</span>':"")+`<div style="font-size:10.5px;color:var(--faint)">${c.t||""}</div>`;});
   $("#editedCount").textContent=n;}
 $("#savePrice").onclick=async()=>{
@@ -401,7 +406,7 @@ $("#savePrice").onclick=async()=>{
   renderPrice();render();toast(`Прайс сохранён (${r.updated} поз.). Emex подхватит в течение 3 часов.`);};
 /* ---------- настройки ---------- */
 function renderSet(){
-  const f=[["sticker","Стикеровка, ₽/шт"],["markup","Ваша наценка в Emex, %"],["shelf_markup","Накрутка Emex покупателю, %"],["start_date","Старт продаж"]];
+  const f=[["sticker","Стикеровка, ₽/шт"],["markup","Ваша наценка в Emex, % (Emex платит вам цену+наценку)"],["shelf_markup","Накрутка Emex покупателю, %"],["start_date","Старт продаж"]];
   let h="";
   f.forEach(([k,l])=>h+=`<label>${l}<input id="st_${k}" value="${SET[k]||""}" ${k==="start_date"?'type="date"':'inputmode="decimal"'}></label>`);
   h+=`<label>НДС в стикеровке<select id="st_sticker_vat"><option value="1"${SET.sticker_vat==="1"?" selected":""}>есть, 22% (возмещается)</option><option value="0"${SET.sticker_vat!=="1"?" selected":""}>нет</option></select></label>`;
