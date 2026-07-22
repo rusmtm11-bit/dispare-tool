@@ -172,6 +172,24 @@ class EmexSetting(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class EmexOrderLog(Base):
+    """Журнал обработанных заказов Emex — защита от повторной загрузки.
+
+    Таблица только для дозаписи (не связана с продажами, ничего не ломает).
+    Перед обработкой заказа проверяем: не грузили ли уже этот номер / этот файл.
+    Создаётся автоматически при старте приложения — базу пересоздавать НЕ нужно.
+    """
+    __tablename__ = "emex_order_log"
+    id = Column(Integer, primary_key=True)
+    order_no = Column(String(20), index=True, default="")   # номер заказа Emex из файла
+    op_date = Column(Date)                                    # дата заказа
+    file_hash = Column(String(64), index=True)               # sha256 содержимого файла
+    articles = Column(Integer, default=0)                    # позиций
+    units = Column(Integer, default=0)                       # штук
+    username = Column(String(100), default="")
+    created_at = Column(DateTime, server_default=func.now())
+
+
 class Batch(Base):
     """Партия закупки (первая авиа, вторая и т.д.)."""
     __tablename__ = "batches"

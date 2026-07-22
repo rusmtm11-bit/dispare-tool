@@ -1,6 +1,7 @@
 """Emex-раздел: секретный прайс по ссылке, обработка заказа, дашборд продаж."""
 import os
 import secrets
+import hashlib
 import datetime
 from io import BytesIO
 
@@ -15,7 +16,7 @@ from openpyxl.styles import Font, PatternFill
 
 from app.database import get_db
 from app.auth import get_current_user, clean_part_number
-from app.models import User, Inventory, StockTransaction, EmexSetting, MarketPrice, Batch, BatchLot
+from app.models import User, Inventory, StockTransaction, EmexSetting, MarketPrice, Batch, BatchLot, EmexOrderLog
 from app.services import emex_order, batches
 
 router = APIRouter(tags=["emex"])
@@ -172,6 +173,7 @@ async def batch_receive(file: UploadFile = File(...), name: str = Form(...),
 # ---------------- загрузка заказа ----------------
 @router.post("/emex/upload")
 async def emex_upload(request: Request, file: UploadFile = File(...),
+                      force: str = Form("0"),
                       db: Session = Depends(get_db),
                       user: User = Depends(get_current_user)):
     content = await file.read()
@@ -182,8 +184,43 @@ async def emex_upload(request: Request, file: UploadFile = File(...),
     if not lines:
         return JSONResponse({"ok": False, "error": "В файле не найдено строк заказа."}, status_code=400)
 
+    # --- Защита от повторной загрузки ---
+    # Считаем заказ уже обработанным, если совпал либо номер заказа, либо хеш файла.
+    file_hash = hashlib.sha256(content).hexdigest()
+    force_flag = str(force) in ("1", "true", "on", "yes")
+    if not force_flag:
+        dup = None
+        if order_no:
+            dup = db.query(EmexOrderLog).filter(EmexOrderLog.order_no == order_no).first()
+        if not dup:
+            dup = db.query(EmexOrderLog).filter(EmexOrderLog.file_hash == file_hash).first()
+        if dup:
+            return JSONResponse({
+                "ok": False,
+                "duplicate": True,
+                "error": (f"Заказ №{dup.order_no or '—'} уже обрабатывался "
+                          f"{dup.created_at.strftime('%d.%m.%Y %H:%M') if dup.created_at else ''} "
+                          f"({dup.articles} позиций, {dup.units} шт). "
+                          f"Повторная загрузка спишет остатки ещё раз."),
+                "order_no": dup.order_no,
+                "processed_at": dup.created_at.strftime("%d.%m.%Y %H:%M") if dup.created_at else "",
+                "hint": "Если это действительно нужно (например, исправленная версия) — "
+                        "повторите загрузку с подтверждением (force).",
+            }, status_code=409)
+
     cons = emex_order.consolidate(lines)
     changes, missing = emex_order.apply_order_to_inventory(db, cons, order_date, user.username, order_no)
+
+    # Фиксируем факт обработки заказа в журнале (после успешного списания)
+    db.add(EmexOrderLog(
+        order_no=order_no or "",
+        op_date=order_date,
+        file_hash=file_hash,
+        articles=len(cons),
+        units=sum(v["qty"] for v in cons.values()),
+        username=user.username,
+    ))
+    db.commit()
 
     os.makedirs(OUT_DIR, exist_ok=True)
     stamp = order_date.strftime("%d%m%y")

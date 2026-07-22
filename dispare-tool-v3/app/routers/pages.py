@@ -43,6 +43,12 @@ def login_submit(
         return templates.TemplateResponse("login.html", {
             "request": request, "error": "Неверный логин или пароль",
         })
+    # Постепенная миграция хешей: если пароль верный, но хеш старый (SHA-256),
+    # прозрачно пересчитываем его в Argon2id. Пользователь ничего не замечает.
+    from app.auth import needs_rehash
+    if needs_rehash(user.password_hash):
+        user.password_hash = hash_password(password)
+        db.commit()
     token = create_token(user.id, user.username)
     resp = RedirectResponse("/", status_code=302)
     resp.set_cookie(COOKIE_NAME, token, max_age=30 * 86400, httponly=True, samesite="lax")

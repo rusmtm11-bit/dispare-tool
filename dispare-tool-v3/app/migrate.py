@@ -18,7 +18,7 @@ import datetime
 from sqlalchemy import text
 
 from app.database import engine, SessionLocal, Base
-from app.models import Inventory, StockTransaction, Batch, BatchLot
+from app.models import Inventory, StockTransaction, Batch, BatchLot, EmexOrderLog
 
 START_DEFAULT = datetime.date(2026, 7, 9)   # дата старта продаж первой партии
 
@@ -121,6 +121,32 @@ def main():
                                     qty_in=qty_in, qty_left=i.quantity or 0,
                                     cost_rub=i.cost_rub or 0, received_at=START_DEFAULT))
                 print(f"+ Партия №1: {len(items)} позиций, приехало {sum((i.quantity or 0) + sold.get(i.part_number_clean, 0) for i in items)} шт")
+        # 7) заполнить журнал заказов из уже обработанных продаж
+        #    (чтобы защита от повторной загрузки работала и для старых заказов)
+        if not db.query(EmexOrderLog).count():
+            sales = db.query(StockTransaction).filter(StockTransaction.tx_type == "sale").all()
+            orders = {}  # order_no -> {op_date, articles(set), units}
+            for s in sales:
+                note = s.notes or ""
+                mno = re.search(r"№\s*(\d+)", note)
+                order_no = mno.group(1) if mno else ""
+                md = re.search(r"(\d{2})\.(\d{2})\.(\d{4})", note)
+                op_date = s.op_date
+                if not op_date and md:
+                    op_date = datetime.date(int(md.group(3)), int(md.group(2)), int(md.group(1)))
+                key = order_no or (op_date.isoformat() if op_date else f"tx{s.id}")
+                o = orders.setdefault(key, {"order_no": order_no, "op_date": op_date,
+                                            "arts": set(), "units": 0})
+                o["arts"].add(s.part_number_clean)
+                o["units"] += abs(s.quantity or 0)
+            for o in orders.values():
+                db.add(EmexOrderLog(
+                    order_no=o["order_no"], op_date=o["op_date"], file_hash="",
+                    articles=len(o["arts"]), units=o["units"], username="migrate",
+                ))
+            if orders:
+                print(f"+ журнал заказов: занесено {len(orders)} прошлых заказов (защита от повтора)")
+
         db.commit()
         print("Готово. База обновлена, данные на месте.")
     finally:

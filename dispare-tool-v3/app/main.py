@@ -33,6 +33,20 @@ app = FastAPI(
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
+
+@app.get("/health")
+def health():
+    """Проверка живости для Docker healthcheck. Пингует базу."""
+    from sqlalchemy import text
+    from app.database import engine
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {"status": "ok", "database": "ok"}
+    except Exception as e:
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"status": "error", "database": str(e)}, status_code=503)
+
 # Роутеры
 app.include_router(pages.router)
 app.include_router(api_catalog.router)
