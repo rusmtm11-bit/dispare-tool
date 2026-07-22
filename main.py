@@ -1,0 +1,14 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+sqlalchemy==2.0.35
+aiosqlite==0.20.0
+python-multipart==0.0.12
+jinja2==3.1.4
+openpyxl==3.1.5
+pandas==2.2.3
+httpx==0.27.2
+python-jose[cryptography]==3.3.0
+python-dotenv==1.0.1
+apscheduler==3.10.4
+xlrd==2.0.1
+argon2-cffi==23.1.0

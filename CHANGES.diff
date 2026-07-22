@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Безопасный деплой Dispare. Запускать на сервере из папки проекта:
+#   cd /root/dispare-tool/dispare-tool-v3
+#   bash deploy.sh
+#
+# Что делает по шагам:
+#   1) запоминает текущий коммит (для отката)
+#   2) делает резервную копию базы
+#   3) git pull
+#   4) пересобирает и перезапускает контейнер
+#   5) проверяет /health
+# При ошибке НЕ откатывает автоматически — печатает логи и подсказку.
+
+set -u
+cd "$(dirname "$0")"
+
+echo "=== 1/5. Запоминаю текущий коммит ==="
+git rev-parse HEAD > .last_deploy_commit 2>/dev/null && \
+  echo "Текущий коммит: $(cat .last_deploy_commit)" || \
+  echo "Не удалось определить коммит (не критично)."
+
+echo "=== 2/5. Резервная копия базы ==="
+if docker compose ps app | grep -q "Up\|running"; then
+  docker compose exec -T app python -m app.backup_db || echo "ВНИМАНИЕ: бэкап не сделан (контейнер не отвечает?)"
+else
+  echo "Контейнер не запущен — пропускаю бэкап через приложение."
+fi
+
+echo "=== 3/5. git pull ==="
+if ! git pull; then
+  echo "git pull не прошёл. Разберитесь с изменениями и повторите. Деплой остановлен."
+  exit 1
+fi
+
+echo "=== 4/5. Сборка и запуск ==="
+docker compose build --no-cache app || { echo "Сборка не прошла. Деплой остановлен."; exit 1; }
+docker compose up -d || { echo "Запуск не прошёл. Деплой остановлен."; exit 1; }
+
+echo "=== 5/5. Проверка /health (ждём до 60 сек) ==="
+ok=0
+for i in $(seq 1 20); do
+  sleep 3
+  code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost/health || echo 000)
+  if [ "$code" = "200" ]; then ok=1; break; fi
+  echo "  ...ещё не готов (HTTP $code), попытка $i/20"
+done
+
+if [ "$ok" = "1" ]; then
+  echo ""
+  echo "ГОТОВО. Приложение живо, /health = 200."
+  echo "Обновите страницу в браузере через Ctrl+F5."
+else
+  echo ""
+  echo "ВНИМАНИЕ: /health не ответил 200. Последние логи приложения:"
+  docker compose logs --tail 40 app
+  echo ""
+  echo "Если приложение не работает — откатитесь командой:  bash rollback.sh"
+  exit 1
+fi
